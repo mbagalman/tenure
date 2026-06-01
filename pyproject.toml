@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tenure"
+version = "0.1.0.dev0"
+description = "Audit-first survival analysis for B2C customer churn -- makes the correct churn study design the default."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Michael", email = "michael@paradoxresolution.com" }]
+keywords = [
+  "survival-analysis",
+  "churn",
+  "retention",
+  "ltv",
+  "kaplan-meier",
+  "customer-analytics",
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
+# v0.1 will add matplotlib + lifelines as their slices land; Phase 0 only uses pandas + numpy.
+dependencies = ["pandas>=2.0", "numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tenure"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
