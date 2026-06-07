@@ -22,26 +22,38 @@ any number is returned.
 
 ## Quickstart (preview)
 
+The one-liner that shows why this exists -- the LTV dollars a naive analysis over-states when
+it mishandles left-truncation:
+
 ```python
 import tenure
 
-# Synthetic SVOD data with a deliberate left-truncation trap baked in:
+result = tenure.naive_vs_corrected_demo()        # synthetic SVOD data, seed 0
+print(f"naive LTV:      ${result['naive_ltv']:.2f}")
+print(f"corrected LTV:  ${result['corrected_ltv']:.2f}")
+print(f"true LTV:       ${result['true_ltv']:.2f}")
+print(f"over-statement: ${result['ltv_dollar_diff']:.2f} per customer")
+print(result["audit"].to_markdown())             # the TNR001 warning that explains the gap
+# naive LTV:      $101.16
+# corrected LTV:  $90.81
+# true LTV:       $90.96
+# over-statement: $10.35 per customer
+```
+
+Or drive the pieces yourself -- audit a study design, fit Kaplan-Meier, summarize:
+
+```python
 df = tenure.load_svod_demo(with_left_truncation=True)
-
-# A naive study design -- old customers present, pre-entry churners excluded,
-# delayed entry NOT modeled:
 study = tenure.StudyDesign.from_event_dates(
-    df,
-    id_col="customer_id",
-    origin_col="signup_date",
-    churn_date_col="churn_date",
-    active_as_of="2026-05-31",
-    analysis_start="2024-01-01",
-    includes_pre_entry_churners=False,
+    df, id_col="customer_id", origin_col="signup_date", churn_date_col="churn_date",
+    active_as_of="2026-05-31", analysis_start="2024-01-01",
+    event_observed_from="2024-01-01",            # model delayed entry -> audit passes
+    group_cols=["plan"],
 )
-
-report = tenure.audit(study, strictness="warn")  # 'block' (default) would raise
-print(report.to_markdown())
+report = tenure.audit(study)                      # raises on a blocking design (default)
+km = tenure.KaplanMeier().fit(study, by="plan")
+summary = tenure.summarize(km, period_margin=12.0, ltv_horizon=365.0, audit_report=report)
+print(summary.to_markdown())
 ```
 
 ## Development
