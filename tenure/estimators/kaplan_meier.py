@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from lifelines import KaplanMeierFitter
 
-from tenure._frame import as_estimator_frame
+from tenure._frame import as_estimator_frame, ensure_estimable
 from tenure.estimators.survival import GroupCurve, SurvivalFunction
 from tenure.exceptions import TenureValidationError
 
@@ -51,6 +51,7 @@ class KaplanMeier:
         self._survival: SurvivalFunction | None = None
 
     def fit(self, data, *, by=None) -> KaplanMeier:
+        ensure_estimable(data)
         table = data.derive() if hasattr(data, "derive") else data
         time_unit = getattr(data, "time_unit", "day")
         labels, order = _group_labels(table, by)

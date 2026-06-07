@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from lifelines import NelsonAalenFitter
 
-from tenure._frame import as_estimator_frame
+from tenure._frame import as_estimator_frame, ensure_estimable
 from tenure.estimators.kaplan_meier import _group_labels
 
 _QUERY_COLUMNS = ["group", "time", "cumulative_hazard", "ci_lower", "ci_upper"]
@@ -78,6 +78,7 @@ class NelsonAalen:
         self._hazard: CumulativeHazardFunction | None = None
 
     def fit(self, data, *, by=None) -> NelsonAalen:
+        ensure_estimable(data)
         table = data.derive() if hasattr(data, "derive") else data
         time_unit = getattr(data, "time_unit", "day")
         labels, order = _group_labels(table, by)

@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from lifelines import CoxTimeVaryingFitter, KaplanMeierFitter
 
-from tenure._frame import ENTRY, EVENT, EXIT, ID, as_estimator_frame
+from tenure._frame import ENTRY, EVENT, EXIT, ID, as_estimator_frame, ensure_estimable
 from tenure.estimators.survival import GroupCurve, SurvivalFunction
 from tenure.exceptions import TenureValidationError
 
@@ -41,6 +41,7 @@ class TimeVaryingCox:
         self._support: tuple | None = None
 
     def fit(self, design) -> TimeVaryingCox:
+        ensure_estimable(design)
         if not getattr(design, "interval", False):
             raise TenureValidationError(
                 "TimeVaryingCox requires an interval (counting-process) design; build it with "
@@ -170,8 +171,11 @@ class TimeVaryingCox:
         encoded = path.encode_covariates(derived).reindex(
             columns=self._fitter.params_.index, fill_value=0.0
         )
-        beta = self._fitter.params_.to_numpy(dtype=float)
-        partial = np.exp(encoded.to_numpy(dtype=float) @ beta)
+        # lifelines centers covariates by the training mean, so its baseline cumulative hazard is
+        # the hazard of the MEAN subject (not x=0). predict_log_partial_hazard applies the same
+        # centering, keeping the partial hazard consistent with that baseline -- using a raw
+        # exp(beta^T x) here would bias S(t) by a factor of exp(beta^T mean).
+        partial = np.exp(self._fitter.predict_log_partial_hazard(encoded).to_numpy(dtype=float))
 
         bch = self._fitter.baseline_cumulative_hazard_
         bch_times = bch.index.to_numpy(dtype=float)

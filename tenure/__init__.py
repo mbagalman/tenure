@@ -38,7 +38,7 @@ from tenure.plotting import plot_cumulative_hazard, plot_log_log_survival, plot_
 from tenure.study_design import StudyDesign
 from tenure.workflow import RetentionResult, RetentionStudy
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "StudyDesign",

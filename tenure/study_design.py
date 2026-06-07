@@ -86,6 +86,28 @@ def _build_covariate_mappings(data: pd.DataFrame, covariate_cols) -> dict:
     return mappings
 
 
+def _parse_optional_dates(series: pd.Series, col: str) -> pd.Series:
+    """Parse an optional date column where true nulls mean 'no event' (active).
+
+    A genuinely missing value (NaN/None/NaT, or a blank/whitespace string) is preserved as NaT.
+    But a value that is PRESENT yet unparseable is a data error -- silently coercing it to NaT
+    would mislabel that customer as active and inflate retention/LTV -- so we raise instead.
+    """
+    parsed = pd.to_datetime(series, errors="coerce")
+    blank = series.isna()
+    if series.dtype == object:
+        blank = blank | (series.astype(str).str.strip() == "")
+    unparseable = parsed.isna() & ~blank
+    if unparseable.any():
+        examples = pd.unique(series[unparseable])[:5].tolist()
+        raise TenureValidationError(
+            f"{int(unparseable.sum())} value(s) in {col!r} are present but not parseable as dates "
+            f"(e.g. {examples}). A present-but-invalid date is not an active customer; fix or null "
+            "those values."
+        )
+    return parsed
+
+
 def _validate_intervals(ids, origin, start, end, event) -> None:
     """Per-subject interval checks: contiguous & non-overlapping, terminal-only event, start<end."""
     work = pd.DataFrame(
@@ -170,6 +192,9 @@ class StudyDesign:
         self.n_unmapped = n_unmapped
         self.unmapped_statuses = list(unmapped_statuses or [])
         self.informative_censoring_statuses = list(informative_censoring_statuses or [])
+        # Set True once audit() has run on this design; gates fitting when rows were silently
+        # dropped (n_unmapped > 0) so the low-level path cannot bypass the design audit.
+        self.audited = False
 
     @property
     def origin(self) -> pd.Series:
@@ -193,6 +218,14 @@ class StudyDesign:
             if mapping["kind"] == "numeric":
                 columns[col] = pd.to_numeric(frame[col]).astype(float).to_numpy()
             else:
+                known = set(mapping["levels"])
+                unknown = sorted(set(frame[col].astype(str).unique()) - known)
+                if unknown:
+                    raise TenureValidationError(
+                        f"Covariate {col!r} has level(s) {unknown} not seen at fit time "
+                        f"(known: {sorted(known)}). An unknown level would be silently encoded as "
+                        "the baseline; fix the value or refit with it present."
+                    )
                 for level in mapping["levels"][1:]:  # drop the baseline level
                     name = f"{col}_{level}"
                     columns[name] = (frame[col].astype(str) == level).astype(float).to_numpy()
@@ -347,7 +380,7 @@ class StudyDesign:
         event_observed_from_ts = _coerce_ts(event_observed_from, "event_observed_from")
 
         origin = pd.to_datetime(data[origin_col], errors="raise")
-        churn = pd.to_datetime(data[churn_date_col], errors="coerce")  # NaT -> active
+        churn = _parse_optional_dates(data[churn_date_col], churn_date_col)
         event = churn.notna() & (churn <= active_as_of_ts)
         exit_date = churn.where(event, active_as_of_ts)
         status_label = np.where(event, "churn", "active")

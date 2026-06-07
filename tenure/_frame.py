@@ -17,6 +17,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from tenure.exceptions import TenureValidationError
+
 # Canonical column names (the lingua franca between layers).
 ID = "id"
 ORIGIN = "origin"
@@ -68,6 +70,21 @@ class EstimatorFrame:
     entry: np.ndarray
     duration: np.ndarray
     event: np.ndarray
+
+
+def ensure_estimable(design) -> None:
+    """Refuse to fit a design that silently dropped unmapped-status rows until it has been audited.
+
+    ``from_status`` drops rows whose status is absent from ``status_map`` (counting them in
+    ``n_unmapped``) and relies on TNR003 to block. A low-level caller that fits directly would
+    otherwise compute curves on a silently-reduced cohort -- so estimators call this first.
+    """
+    if getattr(design, "n_unmapped", 0) and not getattr(design, "audited", False):
+        raise TenureValidationError(
+            f"This design dropped {design.n_unmapped} row(s) whose status was not in status_map, "
+            "so the cohort is silently incomplete. Run audit(design) first (it reports this as "
+            "TNR003), or extend status_map to cover every status."
+        )
 
 
 def as_estimator_frame(canonical: pd.DataFrame) -> EstimatorFrame:

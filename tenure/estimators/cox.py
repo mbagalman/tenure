@@ -19,7 +19,7 @@ import pandas as pd
 from lifelines import CoxPHFitter, KaplanMeierFitter
 from lifelines.statistics import proportional_hazard_test
 
-from tenure._frame import ENTRY, EVENT, EXIT, as_estimator_frame
+from tenure._frame import ENTRY, EVENT, EXIT, as_estimator_frame, ensure_estimable
 from tenure.estimators.survival import GroupCurve, SurvivalFunction
 from tenure.exceptions import TenureValidationError
 
@@ -62,6 +62,7 @@ class CoxPH:
         self._training_frame: pd.DataFrame | None = None
 
     def fit(self, design) -> CoxPH:
+        ensure_estimable(design)
         if not getattr(design, "covariate_cols", None):
             raise TenureValidationError(
                 "CoxPH requires covariate_cols on the StudyDesign "

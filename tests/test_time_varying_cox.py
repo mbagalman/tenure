@@ -231,22 +231,75 @@ def _path(segments: list[tuple[float, float, float]]) -> StudyDesign:
     )
 
 
-def test_constant_path_matches_baseline_proportional_hazards():
-    # A constant covariate path reduces to PH: S(t) = S0(t) ** exp(beta * x). Reference-match.
-    tvc = TimeVaryingCox().fit(_varied_design())
-    x0 = 0.5
-    sf = tvc.predict_survival(_path([(0.0, 30.0, x0), (30.0, 120.0, x0)]))
+def test_constant_path_matches_static_cox_oracle():
+    # INDEPENDENT oracle: a constant covariate path through the time-varying Cox must equal a
+    # static lifelines CoxPHFitter at that covariate value (its predict_survival_function handles
+    # centering correctly). This catches the centering bug a self-referential baseline check misses.
+    from lifelines import CoxPHFitter
 
-    beta = float(tvc.fitter.params_["score"])
-    bs = tvc.fitter.baseline_survival_
-    partial = float(np.exp(beta * x0))
-    test_times = bs.index.to_numpy(dtype=float)
-    test_times = test_times[(test_times > 0) & (test_times <= 120)][:12]
-    got = sf.survival_at(test_times, group="path").sort_values("time")["survival"].to_numpy()
-    ref = np.array(
-        [float(bs.loc[bs.index <= t].iloc[-1, 0]) ** partial for t in np.sort(test_times)]
+    rng = np.random.default_rng(0)
+    n = 600
+    x = rng.normal(size=n)
+    t = rng.exponential(40.0, size=n) * np.exp(-0.4 * x)
+    stop = np.clip(np.round(t), 1, 120).astype(float)
+    event = (np.round(t) <= 120).astype(int)
+
+    cph = CoxPHFitter().fit(
+        pd.DataFrame({"dur": stop, "event": event, "x": x}), duration_col="dur", event_col="event"
     )
-    assert np.allclose(got, ref, atol=1e-9)
+    o = pd.Timestamp("2024-01-01")
+    interval_df = pd.DataFrame(
+        {
+            "cid": np.arange(n),
+            "origin": o,
+            "start": o,
+            "end": o + pd.to_timedelta(stop, unit="D"),
+            "event": event,
+            "x": x,
+        }
+    )
+    design = StudyDesign.from_intervals(
+        interval_df,
+        id_col="cid",
+        origin_col="origin",
+        interval_start_col="start",
+        interval_end_col="end",
+        event_col="event",
+        covariate_cols=["x"],
+    )
+    tvc = TimeVaryingCox().fit(design)
+
+    x0 = 0.8
+    o2 = pd.Timestamp("2024-01-01")
+    path = StudyDesign.from_intervals(
+        pd.DataFrame(
+            {
+                "cid": ["H"],
+                "origin": [o2],
+                "start": [o2],
+                "end": [o2 + pd.Timedelta(days=120)],
+                "event": [0],
+                "x": [x0],
+            }
+        ),
+        id_col="cid",
+        origin_col="origin",
+        interval_start_col="start",
+        interval_end_col="end",
+        event_col="event",
+        covariate_cols=["x"],
+    )
+    sf = tvc.predict_survival(path)
+
+    ref = cph.predict_survival_function(pd.DataFrame({"x": [x0]}))
+    rt = ref.index.to_numpy(dtype=float)
+    rs = ref.iloc[:, 0].to_numpy(dtype=float)
+    test_times = rt[(rt > 0) & (rt <= 120)][:15]
+    got = sf.survival_at(test_times, group="path").sort_values("time")["survival"].to_numpy()
+    expected = np.array(
+        [rs[int(np.searchsorted(rt, q, side="right")) - 1] for q in np.sort(test_times)]
+    )
+    assert np.allclose(got, expected, atol=1e-6)
 
 
 def test_time_varying_path_matches_manual_integration():
@@ -254,6 +307,7 @@ def test_time_varying_path_matches_manual_integration():
     sf = tvc.predict_survival(_path([(0.0, 30.0, 1.0), (30.0, 110.0, -1.0)]))
 
     beta = float(tvc.fitter.params_["score"])
+    norm_mean = float(tvc.fitter._norm_mean["score"])  # lifelines centers covariates
     bch = tvc.fitter.baseline_cumulative_hazard_
     bt = bch.index.to_numpy(dtype=float)
     bv = bch.iloc[:, 0].to_numpy(dtype=float)
@@ -262,7 +316,9 @@ def test_time_varying_path_matches_manual_integration():
         idx = int(np.searchsorted(bt, t, side="right")) - 1
         return bv[idx] if idx >= 0 else 0.0
 
-    p1, p2 = float(np.exp(beta * 1.0)), float(np.exp(beta * -1.0))
+    # Centered partial hazards, consistent with the (centered) baseline cumulative hazard.
+    p1 = float(np.exp(beta * (1.0 - norm_mean)))
+    p2 = float(np.exp(beta * (-1.0 - norm_mean)))
     candidates = bt[(bt > 30) & (bt <= 110)]
     t = float(candidates[len(candidates) // 2])
     expected = float(np.exp(-(p1 * (h0(30.0) - h0(0.0)) + p2 * (h0(t) - h0(30.0)))))

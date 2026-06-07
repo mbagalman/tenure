@@ -24,15 +24,19 @@ adds the layer it is missing: a **study-design audit** that makes the correct de
 and the biased one hard to produce by accident, plus business outputs (retention %, RMST, LTV $)
 that carry their audit caveats. Run it *before* you trust a curve.
 
-## What the audit catches (TNR001-TNR005)
+## What the audit catches (TNR001-TNR004) + output guards (TNR005)
 
-| Check | Bias | Default |
+TNR001-TNR004 are *design-time* checks run by `audit(study)` before any fit. TNR005 is an
+*output-time* guard applied during `summarize` / `rmst` / `survival_weighted_ltv` -- it catches
+horizons that outrun the data's support at the moment you compute a number, not at design time.
+
+| Check | Bias | When / Default |
 |---|---|---|
 | **TNR001** | Left-truncation / delayed entry -- event history that does not reach back to a customer's origin (a "Window-Cut" study, e.g. a billing migration) must be modeled with delayed entry, or retention/LTV are biased upward. | block |
 | **TNR002** | Time-origin confusion -- using the observation-window start as t=0 instead of true signup. | block |
 | **TNR003** | Event/censoring mislabeling -- unmapped exit statuses (status schema), and a warning when a non-churn exit is mapped to `censored` (informative censoring). | block / warn |
 | **TNR004** | Immortal-time -- a covariate level that only appears for higher-tenure customers (a data-driven quantile shift test). On an interval/time-varying design the bias is structurally prevented, so this passes. | warn |
-| **TNR005** | Weak / over-extrapolated horizon -- RMST/LTV past the supported horizon are truncated-and-relabeled rather than read off the flat KM tail. | warn |
+| **TNR005** | Weak / over-extrapolated horizon -- RMST/LTV past the supported horizon are truncated-and-relabeled rather than read off the flat KM tail. | output-time; warn |
 
 Each check is bypassable with `strictness="warn"` and clearable with an explicit attestation
 (e.g. `attest_origin_correct=True`) when you know the design is genuinely fine.

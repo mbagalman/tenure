@@ -70,13 +70,19 @@ class GroupCurve:
         """Largest horizon with adequate support (FR-BO-2): min of the requested horizon, the
         last observed event time, and the last tenure where at-risk >= ``min_at_risk``.
 
-        If the whole cohort never reaches ``min_at_risk`` (small sample), the at-risk criterion
-        does not bind -- only the last event time caps the horizon.
+        The last-event-time cap binds only when events were actually observed. An all-censored
+        cohort still supports survival (KM = 1) out to its last observation, so it must NOT collapse
+        to zero -- support there runs to the last adequately-sized risk set (or, for a small cohort
+        that never reaches ``min_at_risk``, the last observation time).
         """
-        h = min(float(requested), float(self.last_event_time))
+        h = float(requested)
+        if self.last_event_time > 0.0:
+            h = min(h, float(self.last_event_time))
         if len(self.n_at_risk) and self.n_at_risk.max() >= min_at_risk:
             ok = self.risk_times[self.n_at_risk >= min_at_risk]
             h = min(h, float(ok.max())) if len(ok) else 0.0
+        elif len(self.risk_times):
+            h = min(h, float(self.risk_times.max()))
         return max(h, 0.0)
 
 
