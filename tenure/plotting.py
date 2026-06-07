@@ -1,0 +1,122 @@
+"""Matplotlib survival-curve plotting (FR-RC-6/7).
+
+Single or grouped Kaplan-Meier curves with confidence bands, an optional ggsurvplot-style
+number-at-risk table aligned under the x-axis (D-S7), and a caveat stamp when the backing study
+had audit warnings that were bypassed (FR-RC-7). Matplotlib only in v0.1; the full theme system
+is deferred to v1.0.
+"""
+
+from __future__ import annotations
+
+import matplotlib.pyplot as plt
+
+from tenure.estimators.survival import SurvivalFunction
+
+
+def _resolve(estimator):
+    """Return (SurvivalFunction, audit_report_or_None) from a result / estimator / curve."""
+    if hasattr(estimator, "curves") and hasattr(estimator, "audit"):  # RetentionResult
+        return estimator.curves, estimator.audit
+    if hasattr(estimator, "survival_"):  # a fitted estimator (KaplanMeier)
+        return estimator.survival_, None
+    if isinstance(estimator, SurvivalFunction):
+        return estimator, None
+    raise TypeError(
+        "plot_survival expects a RetentionResult, a fitted estimator (.survival_), or a "
+        f"SurvivalFunction; got {type(estimator).__name__}."
+    )
+
+
+def plot_survival(
+    estimator,
+    *,
+    ci: bool = True,
+    at_risk: bool = True,
+    ax=None,
+    audit_report=None,
+    figsize=(8, 5),
+):
+    """Plot survival curves and return the curve Axes.
+
+    ``at_risk=True`` builds its own two-panel figure (curves + number-at-risk table) and so
+    requires ``ax=None``. The caveat stamp is drawn only when ``audit_report`` (or the result's
+    audit) has active warnings -- never on a clean design (preserves the no-crying-wolf invariant).
+    """
+    survival, auto_audit = _resolve(estimator)
+    audit_report = audit_report if audit_report is not None else auto_audit
+    groups = survival.groups
+
+    if at_risk:
+        if ax is not None:
+            raise ValueError(
+                "at_risk=True manages its own figure layout; pass ax=None (or at_risk=False)."
+            )
+        fig = plt.figure(figsize=figsize)
+        gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.08)
+        main_ax = fig.add_subplot(gs[0])
+        table_ax = fig.add_subplot(gs[1], sharex=main_ax)
+    else:
+        main_ax = ax if ax is not None else plt.subplots(figsize=figsize)[1]
+        table_ax = None
+        fig = main_ax.figure
+
+    for group in groups:
+        curve = survival.curve(group)
+        (line,) = main_ax.step(curve.times, curve.survival, where="post", label=group)
+        if ci:
+            main_ax.fill_between(
+                curve.times,
+                curve.ci_lower,
+                curve.ci_upper,
+                step="post",
+                alpha=0.15,
+                color=line.get_color(),
+            )
+
+    main_ax.set_ylim(0.0, 1.02)
+    main_ax.set_ylabel("Survival probability")
+    main_ax.set_xlabel(f"Tenure ({survival.time_unit})")
+    if len(groups) > 1 or groups != ["overall"]:
+        main_ax.legend(title="group", fontsize=9)
+
+    if at_risk:
+        _draw_at_risk_table(table_ax, main_ax, survival, groups)
+
+    if audit_report is not None and audit_report.warnings:
+        names = ", ".join(sorted({r.check_id for r in audit_report.warnings}))
+        fig.text(
+            0.01,
+            0.01,
+            f"Caveat: bypassed audit warning(s): {names}. See the study-design audit.",
+            fontsize=7,
+            color="firebrick",
+            ha="left",
+            va="bottom",
+        )
+
+    return main_ax
+
+
+def _draw_at_risk_table(table_ax, main_ax, survival, groups) -> None:
+    """Render number-at-risk per group at the curve's x-ticks, aligned via shared x-axis."""
+    xlo, xhi = main_ax.get_xlim()
+    ticks = [t for t in main_ax.get_xticks() if xlo <= t <= xhi]
+
+    rows = list(reversed(groups))  # first group ends up on top
+    table_ax.set_ylim(-0.5, len(rows) - 0.5)
+    table_ax.set_yticks(range(len(rows)))
+    table_ax.set_yticklabels(rows, fontsize=9)
+    table_ax.tick_params(left=False)
+    for spine in table_ax.spines.values():
+        spine.set_visible(False)
+
+    table_ax.set_xlabel(f"Tenure ({survival.time_unit})")
+    plt.setp(main_ax.get_xticklabels(), visible=False)
+    main_ax.set_xlabel("")
+    table_ax.set_title("Number at risk", loc="left", fontsize=9)
+
+    for row, group in enumerate(rows):
+        curve = survival.curve(group)
+        for tick in ticks:
+            count = int(curve.n_at_risk_at(tick)[0])
+            table_ax.text(tick, row, str(count), ha="center", va="center", fontsize=8)

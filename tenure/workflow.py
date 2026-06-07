@@ -72,10 +72,10 @@ class RetentionResult:
         )
 
     def plot(self, **kwargs):
-        raise NotImplementedError(
-            "RetentionResult.plot lands in the plotting slice (v0.1 Slice 7); "
-            "use .curves / .summary(...) for now."
-        )
+        """Plot the survival curves (delegates to plot_survival; stamps a caveat on warnings)."""
+        from tenure.plotting import plot_survival
+
+        return plot_survival(self, **kwargs)
 
     def __repr__(self) -> str:
         return f"RetentionResult(groups={self.curves.groups}, audit={self._audit!r})"

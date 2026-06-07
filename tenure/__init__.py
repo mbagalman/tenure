@@ -23,6 +23,7 @@ from tenure.outputs import (
     summarize,
     survival_weighted_ltv,
 )
+from tenure.plotting import plot_survival
 from tenure.study_design import StudyDesign
 from tenure.workflow import RetentionResult, RetentionStudy
 
@@ -39,6 +40,7 @@ __all__ = [
     "survival_weighted_ltv",
     "summarize",
     "SummaryReport",
+    "plot_survival",
     "audit",
     "AuditReport",
     "CheckResult",

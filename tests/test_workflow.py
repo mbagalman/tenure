@@ -72,11 +72,6 @@ def test_summary_carries_audit_provenance():
     assert summary.metadata["audit_verdict"] == "clean (no findings)"
 
 
-def test_plot_not_implemented_yet():
-    with pytest.raises(NotImplementedError):
-        _clean_study().run().plot()
-
-
 def test_from_status_workflow_end_to_end():
     df = pd.DataFrame(
         {
