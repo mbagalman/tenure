@@ -21,6 +21,7 @@ def _interval_df():
             "end": ["2024-02-01", "2024-03-01", "2024-04-01", "2024-02-01", "2024-05-01"],
             "event": [0, 1, 0, 0, 0],
             "usage": ["low", "high", "low", "low", "high"],
+            "plan": ["basic", "basic", "premium", "standard", "standard"],
         }
     )
 
@@ -87,6 +88,20 @@ def test_origin_varies_within_id_raises():
     df = _interval_df()
     df.loc[1, "origin"] = "2024-06-01"  # A's two rows now disagree on origin
     with pytest.raises(TenureValidationError, match="origin varies"):
+        _build(df)
+
+
+def test_group_cols_supported():
+    design = _build(group_cols=["plan"])
+    assert "plan" in design.derive().columns
+    km = tenure.KaplanMeier().fit(design, by="plan")
+    assert set(km.survival_.groups) == {"basic", "premium", "standard"}
+
+
+def test_invalid_event_value_raises():
+    df = _interval_df()
+    df.loc[2, "event"] = 2
+    with pytest.raises(TenureValidationError, match="0/1"):
         _build(df)
 
 

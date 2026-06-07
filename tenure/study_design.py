@@ -97,6 +97,8 @@ def _validate_intervals(ids, origin, start, end, event) -> None:
             "event": np.asarray(event, dtype=int),
         }
     )
+    if not set(np.unique(work["event"].to_numpy())).issubset({0, 1}):
+        raise TenureValidationError("event_col must contain only 0/1 (or boolean) values.")
     if (work["start"] >= work["end"]).any():
         raise TenureValidationError("Every interval needs interval_start < interval_end.")
     if (work.groupby("id")["origin"].nunique() > 1).any():
@@ -471,6 +473,7 @@ class StudyDesign:
         interval_end_col: str,
         event_col: str,
         covariate_cols: list[str] | None = None,
+        group_cols: list[str] | None = None,
         time_unit: str = "day",
     ) -> StudyDesign:
         """Build a counting-process (start-stop) design with time-varying covariates.
@@ -482,6 +485,7 @@ class StudyDesign:
         Repeated ``id_col`` values are expected here (id-uniqueness is not enforced).
         """
         covariate_cols = list(covariate_cols or [])
+        group_cols = list(group_cols or [])
         required = [
             id_col,
             origin_col,
@@ -489,6 +493,7 @@ class StudyDesign:
             interval_end_col,
             event_col,
             *covariate_cols,
+            *group_cols,
         ]
         _check_columns(df, required)
 
@@ -509,7 +514,7 @@ class StudyDesign:
             exit_date=end,
             event=event,
             status_label=status_label,
-            group_cols=[],
+            group_cols=group_cols,
             covariate_cols=covariate_cols,
             interval=True,
             analysis_start_ts=None,
