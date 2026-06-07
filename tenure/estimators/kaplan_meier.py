@@ -52,12 +52,13 @@ class KaplanMeier:
 
     def fit(self, data, *, by=None) -> KaplanMeier:
         table = data.derive() if hasattr(data, "derive") else data
+        time_unit = getattr(data, "time_unit", "day")
         labels, order = _group_labels(table, by)
         curves: dict[str, GroupCurve] = {}
         for label in order:
             mask = (labels == label).to_numpy()
             curves[label] = self._fit_one(as_estimator_frame(table.loc[mask]))
-        self._survival = SurvivalFunction(curves)
+        self._survival = SurvivalFunction(curves, time_unit=time_unit)
         return self
 
     def _fit_one(self, ef) -> GroupCurve:
@@ -78,12 +79,23 @@ class KaplanMeier:
             ci_lower = np.insert(ci_lower, 0, 1.0)
             ci_upper = np.insert(ci_upper, 0, 1.0)
 
+        # Support information from the risk/event table.
+        event_table = kmf.event_table
+        risk_times = event_table.index.to_numpy(dtype=float)
+        n_at_risk = event_table["at_risk"].to_numpy(dtype=float)
+        observed = event_table["observed"].to_numpy(dtype=float)
+        events = risk_times[observed > 0]
+        last_event_time = float(events.max()) if events.size else 0.0
+
         return GroupCurve(
             times=times,
             survival=survival,
             ci_lower=ci_lower,
             ci_upper=ci_upper,
             median=float(kmf.median_survival_time_),
+            risk_times=risk_times,
+            n_at_risk=n_at_risk,
+            last_event_time=last_event_time,
         )
 
     def _require_fitted(self) -> SurvivalFunction:

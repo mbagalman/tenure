@@ -15,6 +15,13 @@ from tenure.exceptions import (
     TenureError,
     TenureValidationError,
 )
+from tenure.outputs import (
+    SummaryReport,
+    retention_at,
+    rmst,
+    summarize,
+    survival_weighted_ltv,
+)
 from tenure.study_design import StudyDesign
 
 __version__ = "0.1.0.dev0"
@@ -23,6 +30,11 @@ __all__ = [
     "StudyDesign",
     "KaplanMeier",
     "SurvivalFunction",
+    "retention_at",
+    "rmst",
+    "survival_weighted_ltv",
+    "summarize",
+    "SummaryReport",
     "audit",
     "AuditReport",
     "CheckResult",
