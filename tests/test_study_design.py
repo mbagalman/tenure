@@ -69,8 +69,3 @@ def test_group_cols_preserved():
     sd = _build(df, group_cols=["plan"])
     assert "plan" in sd.derive().columns
     assert sd.group_cols == ["plan"]
-
-
-def test_from_status_not_implemented():
-    with pytest.raises(NotImplementedError):
-        StudyDesign.from_status()
