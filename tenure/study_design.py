@@ -86,6 +86,41 @@ def _build_covariate_mappings(data: pd.DataFrame, covariate_cols) -> dict:
     return mappings
 
 
+def _validate_intervals(ids, origin, start, end, event) -> None:
+    """Per-subject interval checks: contiguous & non-overlapping, terminal-only event, start<end."""
+    work = pd.DataFrame(
+        {
+            "id": np.asarray(ids),
+            "origin": pd.to_datetime(np.asarray(origin)),
+            "start": pd.to_datetime(np.asarray(start)),
+            "end": pd.to_datetime(np.asarray(end)),
+            "event": np.asarray(event, dtype=int),
+        }
+    )
+    if (work["start"] >= work["end"]).any():
+        raise TenureValidationError("Every interval needs interval_start < interval_end.")
+    if (work.groupby("id")["origin"].nunique() > 1).any():
+        raise TenureValidationError(
+            "origin varies within an id; each subject must have a single origin across intervals."
+        )
+
+    ordered = work.sort_values(["id", "start"]).reset_index(drop=True)
+    same_next = ordered["id"].to_numpy()[1:] == ordered["id"].to_numpy()[:-1]
+    contiguous = ordered["start"].to_numpy()[1:] == ordered["end"].to_numpy()[:-1]
+    if (same_next & ~contiguous).any():
+        raise TenureValidationError(
+            "Intervals for a subject must be contiguous and non-overlapping "
+            "(each interval_start must equal the previous interval_end)."
+        )
+    is_last = np.append(~same_next, True)  # last row of each id
+    if (ordered["event"].to_numpy()[~is_last] == 1).any():
+        raise TenureValidationError(
+            "event=1 is only allowed on a subject's terminal (last) interval."
+        )
+    if (ordered.groupby("id")["event"].sum() > 1).any():
+        raise TenureValidationError("A subject may have at most one event.")
+
+
 class StudyDesign:
     """An explicit, validated churn study design and its derived canonical table.
 
@@ -107,6 +142,7 @@ class StudyDesign:
         time_unit: str,
         covariate_cols: list | None = None,
         covariate_mappings: dict | None = None,
+        interval: bool = False,
         attest_origin_correct: bool | None = None,
         attest_invariant_covariates: list | None = None,
         status_map: dict | None = None,
@@ -124,6 +160,7 @@ class StudyDesign:
         self.time_unit = time_unit
         self.covariate_cols = list(covariate_cols or [])
         self.covariate_mappings = dict(covariate_mappings or {})
+        self.interval = interval
         self.attest_origin_correct = attest_origin_correct
         self.attest_invariant_covariates = list(attest_invariant_covariates or [])
         self.status_map = status_map
@@ -179,6 +216,7 @@ class StudyDesign:
         status_label,
         group_cols: list[str],
         covariate_cols=(),
+        interval: bool = False,
         analysis_start_ts,
         event_observed_from_ts,
         entry_col: str | None,
@@ -260,6 +298,7 @@ class StudyDesign:
             time_unit=time_unit,
             covariate_cols=list(covariate_cols),
             covariate_mappings=covariate_mappings,
+            interval=interval,
             attest_origin_correct=attest_origin_correct,
             attest_invariant_covariates=attest_invariant_covariates,
             status_map=status_map,
@@ -419,4 +458,63 @@ class StudyDesign:
             n_unmapped=n_unmapped,
             unmapped_statuses=unmapped_statuses,
             informative_censoring_statuses=informative,
+        )
+
+    @classmethod
+    def from_intervals(
+        cls,
+        df: pd.DataFrame,
+        *,
+        id_col: str,
+        origin_col: str,
+        interval_start_col: str,
+        interval_end_col: str,
+        event_col: str,
+        covariate_cols: list[str] | None = None,
+        time_unit: str = "day",
+    ) -> StudyDesign:
+        """Build a counting-process (start-stop) design with time-varying covariates.
+
+        One row per (subject, interval); a subject's covariates may change between intervals.
+        ``event_col`` is 1 only on the subject's terminal interval (if they churned). This reuses
+        the canonical columns -- ``entry_tenure`` is the interval start, ``exit_tenure`` the
+        interval stop -- so KM and the business outputs consume it unchanged (DV3-1 / A1).
+        Repeated ``id_col`` values are expected here (id-uniqueness is not enforced).
+        """
+        covariate_cols = list(covariate_cols or [])
+        required = [
+            id_col,
+            origin_col,
+            interval_start_col,
+            interval_end_col,
+            event_col,
+            *covariate_cols,
+        ]
+        _check_columns(df, required)
+
+        data = df.reset_index(drop=True)
+        origin = pd.to_datetime(data[origin_col], errors="raise")
+        start = pd.to_datetime(data[interval_start_col], errors="raise")
+        end = pd.to_datetime(data[interval_end_col], errors="raise")
+        event = data[event_col].astype(int)
+
+        _validate_intervals(data[id_col], origin, start, end, event)
+
+        status_label = np.where(event.to_numpy() == 1, "churn", "active")
+
+        return cls._assemble(
+            data,
+            ids=data[id_col],
+            origin=origin,
+            exit_date=end,
+            event=event,
+            status_label=status_label,
+            group_cols=[],
+            covariate_cols=covariate_cols,
+            interval=True,
+            analysis_start_ts=None,
+            event_observed_from_ts=None,
+            entry_col=interval_start_col,  # entry_tenure = interval_start - origin
+            includes_pre_entry_churners=None,
+            time_unit=time_unit,
         )
