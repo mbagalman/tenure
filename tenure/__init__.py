@@ -10,7 +10,7 @@ from tenure.audit import AuditReport, audit
 from tenure.audit.report import CheckResult, Status
 from tenure.datasets import load_svod_demo, svod_demo_truth
 from tenure.demo import naive_vs_corrected_demo
-from tenure.estimators import CoxPH, KaplanMeier, SurvivalFunction
+from tenure.estimators import CoxDiagnosticReport, CoxPH, KaplanMeier, SurvivalFunction
 from tenure.exceptions import (
     AuditBlockedError,
     TenureError,
@@ -25,7 +25,7 @@ from tenure.outputs import (
     summarize,
     survival_weighted_ltv,
 )
-from tenure.plotting import plot_survival
+from tenure.plotting import plot_log_log_survival, plot_survival
 from tenure.study_design import StudyDesign
 from tenure.workflow import RetentionResult, RetentionStudy
 
@@ -37,6 +37,7 @@ __all__ = [
     "RetentionResult",
     "KaplanMeier",
     "CoxPH",
+    "CoxDiagnosticReport",
     "SurvivalFunction",
     "retention_at",
     "rmst",
@@ -46,6 +47,7 @@ __all__ = [
     "churn_risk_scores",
     "RiskScores",
     "plot_survival",
+    "plot_log_log_survival",
     "audit",
     "AuditReport",
     "CheckResult",

@@ -11,9 +11,13 @@ so RMST/LTV truncate-and-relabel where the training data thins out.
 
 from __future__ import annotations
 
+import warnings
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from lifelines import CoxPHFitter, KaplanMeierFitter
+from lifelines.statistics import proportional_hazard_test
 
 from tenure._frame import ENTRY, EVENT, EXIT, as_estimator_frame
 from tenure.estimators.survival import GroupCurve, SurvivalFunction
@@ -22,6 +26,28 @@ from tenure.exceptions import TenureValidationError
 _DURATION = "__duration__"
 _EVENT = "__event__"
 _ENTRY = "__entry__"
+
+
+@dataclass
+class CoxDiagnosticReport:
+    """Proportional-hazards diagnostic: a tidy per-covariate table plus pass/fail helpers."""
+
+    table: pd.DataFrame  # columns: covariate, test_statistic, p_value, status
+    threshold: float = 0.05
+
+    @property
+    def ok(self) -> bool:
+        return not (self.table["status"] == "fail").any()
+
+    @property
+    def violations(self) -> list[str]:
+        return self.table.loc[self.table["status"] == "fail", "covariate"].tolist()
+
+    def __repr__(self) -> str:
+        return (
+            f"CoxDiagnosticReport(ok={self.ok}, violations={self.violations}, "
+            f"threshold={self.threshold})"
+        )
 
 
 class CoxPH:
@@ -33,6 +59,7 @@ class CoxPH:
         self._fitter: CoxPHFitter | None = None
         self._design = None
         self._support: tuple | None = None
+        self._training_frame: pd.DataFrame | None = None
 
     def fit(self, design) -> CoxPH:
         if not getattr(design, "covariate_cols", None):
@@ -51,6 +78,7 @@ class CoxPH:
         self._fitter = fitter
         self._design = design
         self._support = self._training_support(table)
+        self._training_frame = frame
         return self
 
     @staticmethod
@@ -144,6 +172,45 @@ class CoxPH:
         levels = mappings[vary]["levels"]
         rows = [{**base, vary: level} for level in levels]
         return pd.DataFrame(rows, index=[str(level) for level in levels])
+
+    def proportional_hazards_test(
+        self, *, time_transform: str = "rank", threshold: float = 0.05, warn: bool = True
+    ) -> CoxDiagnosticReport:
+        """Schoenfeld-residual test of the PH assumption per covariate (matches lifelines).
+
+        Returns a CoxDiagnosticReport (status pass/fail at ``threshold``) and emits a warning when
+        any covariate fails (unless ``warn=False``). A fitted-model diagnostic, not a study-design
+        audit check (DV2-4).
+
+        Note: lifelines cannot compute Schoenfeld residuals for left-truncated (entry) fits, so the
+        test refits without the entry column -- identical when there is no delayed entry, a close
+        approximation otherwise (the only way lifelines exposes the test).
+        """
+        self._require_fitted()
+        frame = self._training_frame.drop(columns=[_ENTRY])
+        fitter = CoxPHFitter(penalizer=self.penalizer)
+        fitter.fit(frame, duration_col=_DURATION, event_col=_EVENT)
+        result = proportional_hazard_test(fitter, frame, time_transform=time_transform)
+        summary = result.summary
+        covariates = [str(i[0]) if isinstance(i, tuple) else str(i) for i in summary.index]
+        p_value = summary["p"].to_numpy(dtype=float)
+        table = pd.DataFrame(
+            {
+                "covariate": covariates,
+                "test_statistic": summary["test_statistic"].to_numpy(dtype=float),
+                "p_value": p_value,
+                "status": np.where(p_value < threshold, "fail", "pass"),
+            }
+        )
+        report = CoxDiagnosticReport(table=table, threshold=threshold)
+        if warn and not report.ok:
+            warnings.warn(
+                f"Proportional-hazards assumption may be violated for {report.violations} "
+                f"(Schoenfeld p < {threshold}). Consider a stratified Cox or a time-varying "
+                "model (v0.3).",
+                stacklevel=2,
+            )
+        return report
 
     @staticmethod
     def _as_frame(profiles) -> pd.DataFrame:

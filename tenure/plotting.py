@@ -9,6 +9,7 @@ is deferred to v1.0.
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from tenure.estimators.survival import SurvivalFunction
 
@@ -120,3 +121,27 @@ def _draw_at_risk_table(table_ax, main_ax, survival, groups) -> None:
         for tick in ticks:
             count = int(curve.n_at_risk_at(tick)[0])
             table_ax.text(tick, row, str(count), ha="center", va="center", fontsize=8)
+
+
+def plot_log_log_survival(estimator, *, ax=None, figsize=(8, 5)):
+    """Log-log survival plot: log(-log S(t)) vs log(tenure) per group.
+
+    Parallel curves support the proportional-hazards assumption; crossing or diverging curves
+    suggest a violation. A visual companion to ``CoxPH.proportional_hazards_test``.
+    """
+    survival, _ = _resolve(estimator)
+    main_ax = ax if ax is not None else plt.subplots(figsize=figsize)[1]
+    for group in survival.groups:
+        curve = survival.curve(group)
+        times, surv = curve.times, curve.survival
+        mask = (times > 0) & (surv > 0) & (surv < 1)  # log(-log) undefined at S in {0, 1}
+        if mask.any():
+            main_ax.step(
+                np.log(times[mask]), np.log(-np.log(surv[mask])), where="post", label=group
+            )
+    main_ax.set_xlabel(f"log(tenure [{survival.time_unit}])")
+    main_ax.set_ylabel("log(-log S(t))")
+    main_ax.set_title("Log-log survival (parallel => proportional hazards)")
+    if survival.groups != ["overall"]:
+        main_ax.legend(title="group", fontsize=9)
+    return main_ax

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from tenure.estimators.cox import CoxPH
+from tenure.estimators.cox import CoxDiagnosticReport, CoxPH
 from tenure.estimators.kaplan_meier import KaplanMeier
 from tenure.estimators.survival import SurvivalFunction
 
-__all__ = ["KaplanMeier", "CoxPH", "SurvivalFunction"]
+__all__ = ["KaplanMeier", "CoxPH", "CoxDiagnosticReport", "SurvivalFunction"]
