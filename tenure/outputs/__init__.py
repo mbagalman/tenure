@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from tenure.outputs.ltv import survival_weighted_ltv
 from tenure.outputs.retention import retention_at, rmst
+from tenure.outputs.scoring import RiskScores, churn_risk_scores
 from tenure.outputs.summary import SummaryReport, summarize
 
 __all__ = [
@@ -15,4 +16,6 @@ __all__ = [
     "survival_weighted_ltv",
     "SummaryReport",
     "summarize",
+    "churn_risk_scores",
+    "RiskScores",
 ]

@@ -76,6 +76,18 @@ class CoxPH:
         self._require_fitted()
         return self._fitter
 
+    @property
+    def design(self):
+        """The StudyDesign this model was fit on."""
+        self._require_fitted()
+        return self._design
+
+    def encode_for_prediction(self, design) -> pd.DataFrame:
+        """Encode a design's covariates, aligned to the fitted model's columns (missing -> 0)."""
+        self._require_fitted()
+        encoded = design.encode_covariates(design.derive())
+        return encoded.reindex(columns=self._fitter.params_.index, fill_value=0.0)
+
     def predict_survival(self, profiles) -> SurvivalFunction:
         """Predicted survival per covariate profile (raw labels) as a SurvivalFunction.
 

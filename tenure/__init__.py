@@ -17,7 +17,9 @@ from tenure.exceptions import (
     TenureValidationError,
 )
 from tenure.outputs import (
+    RiskScores,
     SummaryReport,
+    churn_risk_scores,
     retention_at,
     rmst,
     summarize,
@@ -41,6 +43,8 @@ __all__ = [
     "survival_weighted_ltv",
     "summarize",
     "SummaryReport",
+    "churn_risk_scores",
+    "RiskScores",
     "plot_survival",
     "audit",
     "AuditReport",

@@ -25,6 +25,15 @@ def as_survival(estimator) -> SurvivalFunction:
     )
 
 
+def audit_verdict(report) -> str:
+    """A short provenance string for an audit report (or 'not attached' when None)."""
+    if report is None:
+        return "not attached"
+    if report.clean:
+        return "clean (no findings)"
+    return f"{len(report.blocks)} block(s), {len(report.warnings)} warning(s)"
+
+
 def period_length_in_units(period: str, time_unit: str) -> float:
     """Length of one ``period`` expressed in the curve's ``time_unit``."""
     try:
