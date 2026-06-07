@@ -31,6 +31,19 @@ class ImmortalTimeCheck(AuditCheck):
     title = "Immortal-time / future-looking covariate"
 
     def evaluate(self, design) -> CheckResult | None:
+        if getattr(design, "interval", False):
+            # An interval (counting-process) design encodes a future-looking attribute as a
+            # time-varying covariate that flips 0 -> 1 only when it occurs, so the pre-change
+            # person-time stays in the X=0 risk set. Immortal-time bias is structurally
+            # prevented, not merely warned (DV3-3) -- so the heuristic is superseded here.
+            return CheckResult(
+                self.id,
+                Status.PASS,
+                self.title,
+                "Interval (time-varying) design: future-looking attributes enter the risk set "
+                "only after they occur, so immortal-time bias is structurally prevented.",
+            )
+
         scan_cols = list(
             dict.fromkeys([*design.group_cols, *getattr(design, "covariate_cols", [])])
         )

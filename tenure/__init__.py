@@ -9,7 +9,7 @@ from __future__ import annotations
 from tenure.audit import AuditReport, audit
 from tenure.audit.report import CheckResult, Status
 from tenure.datasets import load_svod_demo, svod_demo_truth
-from tenure.demo import naive_vs_corrected_demo
+from tenure.demo import naive_vs_corrected_demo, naive_vs_corrected_immortal_demo
 from tenure.estimators import (
     CoxDiagnosticReport,
     CoxPH,
@@ -24,6 +24,7 @@ from tenure.exceptions import (
     TenureError,
     TenureValidationError,
 )
+from tenure.landmark import landmark
 from tenure.outputs import (
     RiskScores,
     SummaryReport,
@@ -70,5 +71,7 @@ __all__ = [
     "load_svod_demo",
     "svod_demo_truth",
     "naive_vs_corrected_demo",
+    "naive_vs_corrected_immortal_demo",
+    "landmark",
     "__version__",
 ]
