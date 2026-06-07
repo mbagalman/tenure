@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tenure"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Audit-first survival analysis for B2C customer churn -- makes the correct churn study design the default."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,7 +19,7 @@ keywords = [
   "customer-analytics",
 ]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",

@@ -8,19 +8,33 @@ Tenure makes the statistically correct design the default and makes biased desig
 to produce by accident, via a plain-language **study-design audit** that runs *before*
 any number is returned.
 
-> **Status: pre-alpha (Phase 0 skeleton).** Not yet released. The distribution name on
-> PyPI is not final. APIs will change.
+> **Status: v0.1 (alpha).** The public API is settling; minor changes are still possible. The
+> distribution name on PyPI is not final.
 
-## What the audit catches (v0.1, in progress)
+## Why this vs lifelines?
 
-- **TNR001 -- Left-truncation / delayed entry.** The subtle one: having an older
-  customer's record is not enough; if your event history does not reach back to their
-  origin (a "Window-Cut" study, e.g. a billing-system migration), they must be modeled
-  with delayed entry or your retention and LTV are biased upward.
-- More checks (event/censoring mislabeling, time-origin confusion, immortal-time,
-  horizon support) land across the v0.1 milestones.
+`lifelines` gives you correct *estimators* and assumes you have already built a statistically
+valid risk set. In practice that assumption is where most business churn analyses quietly go
+wrong -- left-truncation inflates retention and LTV, window-as-origin and immortal-time bias
+fabricate effects, informative censoring skews curves. Tenure wraps lifelines for the math and
+adds the layer it is missing: a **study-design audit** that makes the correct design the default
+and the biased one hard to produce by accident, plus business outputs (retention %, RMST, LTV $)
+that carry their audit caveats. Run it *before* you trust a curve.
 
-## Quickstart (preview)
+## What the audit catches (TNR001-TNR005)
+
+| Check | Bias | Default |
+|---|---|---|
+| **TNR001** | Left-truncation / delayed entry -- event history that does not reach back to a customer's origin (a "Window-Cut" study, e.g. a billing migration) must be modeled with delayed entry, or retention/LTV are biased upward. | block |
+| **TNR002** | Time-origin confusion -- using the observation-window start as t=0 instead of true signup. | block |
+| **TNR003** | Event/censoring mislabeling -- unmapped exit statuses (status schema), and a warning when a non-churn exit is mapped to `censored` (informative censoring). | block / warn |
+| **TNR004** | Immortal-time -- a covariate level that only appears for higher-tenure customers (a data-driven quantile shift test). | warn |
+| **TNR005** | Weak / over-extrapolated horizon -- RMST/LTV past the supported horizon are truncated-and-relabeled rather than read off the flat KM tail. | warn |
+
+Each check is bypassable with `strictness="warn"` and clearable with an explicit attestation
+(e.g. `attest_origin_correct=True`) when you know the design is genuinely fine.
+
+## Quickstart
 
 The one-liner that shows why this exists -- the LTV dollars a naive analysis over-states when
 it mishandles left-truncation:

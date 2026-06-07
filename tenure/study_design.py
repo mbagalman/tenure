@@ -157,6 +157,17 @@ class StudyDesign:
         origin = pd.to_datetime(origin).reset_index(drop=True)
         exit_date = pd.to_datetime(exit_date).reset_index(drop=True)
 
+        if len(origin) == 0:
+            raise TenureValidationError(
+                "Study design has zero rows (after dedup / exclusions / unmapped drops); "
+                "nothing to analyze."
+            )
+        if origin.isna().any() or exit_date.isna().any():
+            raise TenureValidationError(
+                "origin/exit contain null dates; every analysis row needs a valid origin and "
+                "exit (active customers exit at the snapshot date)."
+            )
+
         if (origin > exit_date).any():
             bad = int((origin > exit_date).sum())
             raise TenureValidationError(

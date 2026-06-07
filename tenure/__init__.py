@@ -27,7 +27,7 @@ from tenure.plotting import plot_survival
 from tenure.study_design import StudyDesign
 from tenure.workflow import RetentionResult, RetentionStudy
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
 
 __all__ = [
     "StudyDesign",
