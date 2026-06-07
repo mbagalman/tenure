@@ -11,6 +11,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import numpy as np
 
+from tenure.estimators.nelson_aalen import CumulativeHazardFunction
 from tenure.estimators.survival import SurvivalFunction
 
 
@@ -143,5 +144,41 @@ def plot_log_log_survival(estimator, *, ax=None, figsize=(8, 5)):
     main_ax.set_ylabel("log(-log S(t))")
     main_ax.set_title("Log-log survival (parallel => proportional hazards)")
     if survival.groups != ["overall"]:
+        main_ax.legend(title="group", fontsize=9)
+    return main_ax
+
+
+def _resolve_hazard(estimator) -> CumulativeHazardFunction:
+    if isinstance(estimator, CumulativeHazardFunction):
+        return estimator
+    hazard = getattr(estimator, "cumulative_hazard_", None)
+    if isinstance(hazard, CumulativeHazardFunction):
+        return hazard
+    raise TypeError(
+        "plot_cumulative_hazard expects a NelsonAalen estimator or a CumulativeHazardFunction; "
+        f"got {type(estimator).__name__}."
+    )
+
+
+def plot_cumulative_hazard(estimator, *, ci: bool = True, ax=None, figsize=(8, 5)):
+    """Plot Nelson-Aalen cumulative-hazard step curves (single or grouped) with CI bands."""
+    hazard = _resolve_hazard(estimator)
+    main_ax = ax if ax is not None else plt.subplots(figsize=figsize)[1]
+    for group in hazard.groups:
+        curve = hazard.curve(group)
+        (line,) = main_ax.step(curve.times, curve.cumulative_hazard, where="post", label=group)
+        if ci:
+            main_ax.fill_between(
+                curve.times,
+                curve.ci_lower,
+                curve.ci_upper,
+                step="post",
+                alpha=0.15,
+                color=line.get_color(),
+            )
+    main_ax.set_xlabel(f"Tenure ({hazard.time_unit})")
+    main_ax.set_ylabel("Cumulative hazard")
+    main_ax.set_title("Nelson-Aalen cumulative hazard")
+    if hazard.groups != ["overall"]:
         main_ax.legend(title="group", fontsize=9)
     return main_ax

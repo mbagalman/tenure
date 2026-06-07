@@ -8,8 +8,9 @@ Tenure makes the statistically correct design the default and makes biased desig
 to produce by accident, via a plain-language **study-design audit** that runs *before*
 any number is returned.
 
-> **Status: v0.1 (alpha).** The public API is settling; minor changes are still possible. The
-> distribution name on PyPI is not final.
+> **Status: v0.2 (alpha).** v0.1 = the audit + Kaplan-Meier + retention/LTV. v0.2 adds risk
+> modeling (Cox PH, churn-risk scoring, PH diagnostics). The public API is settling; minor changes
+> are still possible. The distribution name on PyPI is not final.
 
 ## Why this vs lifelines?
 
@@ -69,6 +70,34 @@ km = tenure.KaplanMeier().fit(study, by="plan")
 summary = tenure.summarize(km, period_margin=12.0, ltv_horizon=365.0, audit_report=report)
 print(summary.to_markdown())
 ```
+
+## Risk modeling (v0.2): Cox, scoring, diagnostics
+
+Move from "how is the cohort retaining" to "which customers are at risk, and why." Declare
+covariates on the study design; Cox plugs into the same outputs as Kaplan-Meier.
+
+```python
+study = tenure.StudyDesign.from_event_dates(
+    df, id_col="customer_id", origin_col="signup_date", churn_date_col="churn_date",
+    active_as_of="2026-05-31", covariate_cols=["plan", "tenure_days_at_signup"],
+)
+cox = tenure.CoxPH().fit(study)
+
+# Survival curves at covariate profiles -> consumed by retention_at / rmst / survival_weighted_ltv:
+curves = cox.predict_survival(cox.profile_grid("plan"))
+print(tenure.retention_at(curves, [90, 365]))
+
+# Per-customer churn-risk scores (partial hazard) + ranking:
+scores = tenure.churn_risk_scores(cox, horizon=365.0)
+print(scores.table.sort_values("risk_score", ascending=False).head())
+
+# Is the proportional-hazards assumption respected?
+diag = cox.proportional_hazards_test()          # warns if violated; tidy report on .table
+print(diag.ok, diag.violations)
+# tenure.plot_log_log_survival(km_by_plan)      # visual PH check
+```
+
+Nelson-Aalen cumulative hazard is also available (`tenure.NelsonAalen`, `plot_cumulative_hazard`).
 
 ## Development
 
