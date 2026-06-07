@@ -29,8 +29,8 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Scientific/Engineering :: Information Analysis",
 ]
-# v0.1 will add matplotlib + lifelines as their slices land; Phase 0 only uses pandas + numpy.
-dependencies = ["pandas>=2.0", "numpy>=1.24"]
+# matplotlib lands with the plotting slice; lifelines is wrapped for the estimators.
+dependencies = ["pandas>=2.0", "numpy>=1.24", "lifelines>=0.27"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "ruff>=0.4"]

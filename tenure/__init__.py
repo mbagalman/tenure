@@ -9,6 +9,7 @@ from __future__ import annotations
 from tenure.audit import AuditReport, audit
 from tenure.audit.report import CheckResult, Status
 from tenure.datasets import load_svod_demo, svod_demo_truth
+from tenure.estimators import KaplanMeier, SurvivalFunction
 from tenure.exceptions import (
     AuditBlockedError,
     TenureError,
@@ -20,6 +21,8 @@ __version__ = "0.1.0.dev0"
 
 __all__ = [
     "StudyDesign",
+    "KaplanMeier",
+    "SurvivalFunction",
     "audit",
     "AuditReport",
     "CheckResult",
