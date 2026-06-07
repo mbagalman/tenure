@@ -68,6 +68,24 @@ def _resolve_duplicates(data: pd.DataFrame, id_col: str, dedup_policy: str) -> p
     return data.drop_duplicates(subset=id_col, keep=keep).reset_index(drop=True)
 
 
+def _build_covariate_mappings(data: pd.DataFrame, covariate_cols) -> dict:
+    """Classify each covariate numeric vs categorical and reject nulls (Cox needs complete data)."""
+    mappings: dict = {}
+    for col in covariate_cols:
+        series = data[col]
+        if series.isna().any():
+            raise TenureValidationError(
+                f"covariate_cols column {col!r} has null value(s); regression models require "
+                "complete-case data. Impute or drop those rows before building the design."
+            )
+        if pd.api.types.is_bool_dtype(series) or not pd.api.types.is_numeric_dtype(series):
+            levels = sorted(pd.unique(series.astype(str)).tolist())
+            mappings[col] = {"kind": "categorical", "levels": levels, "baseline": levels[0]}
+        else:
+            mappings[col] = {"kind": "numeric"}
+    return mappings
+
+
 class StudyDesign:
     """An explicit, validated churn study design and its derived canonical table.
 
@@ -87,6 +105,8 @@ class StudyDesign:
         includes_pre_entry_churners: bool | None,
         group_cols: list[str],
         time_unit: str,
+        covariate_cols: list | None = None,
+        covariate_mappings: dict | None = None,
         attest_origin_correct: bool | None = None,
         attest_invariant_covariates: list | None = None,
         status_map: dict | None = None,
@@ -102,6 +122,8 @@ class StudyDesign:
         self.includes_pre_entry_churners = includes_pre_entry_churners
         self.group_cols = list(group_cols)
         self.time_unit = time_unit
+        self.covariate_cols = list(covariate_cols or [])
+        self.covariate_mappings = dict(covariate_mappings or {})
         self.attest_origin_correct = attest_origin_correct
         self.attest_invariant_covariates = list(attest_invariant_covariates or [])
         self.status_map = status_map
@@ -123,6 +145,22 @@ class StudyDesign:
         """Return a copy of the inspectable canonical survival table."""
         return self.canonical.copy()
 
+    def encode_covariates(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Encode covariates to a numeric design matrix (numeric as-is; categorical one-hot,
+        drop-first) using the stored ``covariate_mappings`` -- so callers query with raw labels.
+        """
+        columns: dict = {}
+        for col, mapping in self.covariate_mappings.items():
+            if mapping["kind"] == "numeric":
+                columns[col] = pd.to_numeric(frame[col]).astype(float).to_numpy()
+            else:
+                for level in mapping["levels"][1:]:  # drop the baseline level
+                    name = f"{col}_{level}"
+                    columns[name] = (frame[col].astype(str) == level).astype(float).to_numpy()
+        if not columns:
+            return pd.DataFrame(index=frame.index)
+        return pd.DataFrame(columns, index=frame.index)
+
     def __repr__(self) -> str:
         return (
             f"StudyDesign(n={self.n}, time_unit={self.time_unit!r}, "
@@ -140,6 +178,7 @@ class StudyDesign:
         event,
         status_label,
         group_cols: list[str],
+        covariate_cols=(),
         analysis_start_ts,
         event_observed_from_ts,
         entry_col: str | None,
@@ -206,8 +245,10 @@ class StudyDesign:
                 STATUS: np.asarray(status_label),
             }
         )
-        for col in group_cols:
+        for col in dict.fromkeys([*group_cols, *covariate_cols]):
             canonical[col] = data[col].to_numpy()
+
+        covariate_mappings = _build_covariate_mappings(data, covariate_cols)
 
         return cls(
             canonical=canonical,
@@ -217,6 +258,8 @@ class StudyDesign:
             includes_pre_entry_churners=includes_pre_entry_churners,
             group_cols=group_cols,
             time_unit=time_unit,
+            covariate_cols=list(covariate_cols),
+            covariate_mappings=covariate_mappings,
             attest_origin_correct=attest_origin_correct,
             attest_invariant_covariates=attest_invariant_covariates,
             status_map=status_map,
@@ -240,6 +283,7 @@ class StudyDesign:
         event_observed_from=None,
         includes_pre_entry_churners: bool | None = None,
         group_cols: list[str] | None = None,
+        covariate_cols: list[str] | None = None,
         time_unit: str = "day",
         dedup_policy: str = "error",
         attest_origin_correct: bool | None = None,
@@ -247,7 +291,8 @@ class StudyDesign:
     ) -> StudyDesign:
         """Build a design from origin + churn-date columns (null churn date = active)."""
         group_cols = list(group_cols or [])
-        required = [id_col, origin_col, churn_date_col, *group_cols]
+        covariate_cols = list(covariate_cols or [])
+        required = [id_col, origin_col, churn_date_col, *group_cols, *covariate_cols]
         if entry_col is not None:
             required.append(entry_col)
         _check_columns(df, required)
@@ -274,6 +319,7 @@ class StudyDesign:
             event=event.astype(int),
             status_label=status_label,
             group_cols=group_cols,
+            covariate_cols=covariate_cols,
             analysis_start_ts=analysis_start_ts,
             event_observed_from_ts=event_observed_from_ts,
             entry_col=entry_col,
@@ -299,6 +345,7 @@ class StudyDesign:
         event_observed_from=None,
         includes_pre_entry_churners: bool | None = None,
         group_cols: list[str] | None = None,
+        covariate_cols: list[str] | None = None,
         time_unit: str = "day",
         dedup_policy: str = "error",
         attest_origin_correct: bool | None = None,
@@ -311,7 +358,8 @@ class StudyDesign:
         (``n_unmapped``) and flagged by the audit (TNR003) -- never silently coerced.
         """
         group_cols = list(group_cols or [])
-        required = [id_col, origin_col, exit_col, status_col, *group_cols]
+        covariate_cols = list(covariate_cols or [])
+        required = [id_col, origin_col, exit_col, status_col, *group_cols, *covariate_cols]
         if entry_col is not None:
             required.append(entry_col)
         _check_columns(df, required)
@@ -358,6 +406,7 @@ class StudyDesign:
             event=event,
             status_label=status_label,
             group_cols=group_cols,
+            covariate_cols=covariate_cols,
             analysis_start_ts=analysis_start_ts,
             event_observed_from_ts=event_observed_from_ts,
             entry_col=entry_col,

@@ -31,11 +31,14 @@ class ImmortalTimeCheck(AuditCheck):
     title = "Immortal-time / future-looking covariate"
 
     def evaluate(self, design) -> CheckResult | None:
-        if not design.group_cols:
+        scan_cols = list(
+            dict.fromkeys([*design.group_cols, *getattr(design, "covariate_cols", [])])
+        )
+        if not scan_cols:
             return None
 
         attested = set(design.attest_invariant_covariates)
-        cols = [c for c in design.group_cols if c not in attested]
+        cols = [c for c in scan_cols if c not in attested]
         if not cols:
             return CheckResult(
                 self.id,

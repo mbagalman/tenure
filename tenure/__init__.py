@@ -10,7 +10,7 @@ from tenure.audit import AuditReport, audit
 from tenure.audit.report import CheckResult, Status
 from tenure.datasets import load_svod_demo, svod_demo_truth
 from tenure.demo import naive_vs_corrected_demo
-from tenure.estimators import KaplanMeier, SurvivalFunction
+from tenure.estimators import CoxPH, KaplanMeier, SurvivalFunction
 from tenure.exceptions import (
     AuditBlockedError,
     TenureError,
@@ -34,6 +34,7 @@ __all__ = [
     "RetentionStudy",
     "RetentionResult",
     "KaplanMeier",
+    "CoxPH",
     "SurvivalFunction",
     "retention_at",
     "rmst",
