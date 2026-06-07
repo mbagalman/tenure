@@ -17,6 +17,7 @@ from tenure.estimators import (
     KaplanMeier,
     NelsonAalen,
     SurvivalFunction,
+    TimeVaryingCox,
 )
 from tenure.exceptions import (
     AuditBlockedError,
@@ -46,6 +47,7 @@ __all__ = [
     "NelsonAalen",
     "CoxPH",
     "CoxDiagnosticReport",
+    "TimeVaryingCox",
     "SurvivalFunction",
     "CumulativeHazardFunction",
     "retention_at",
