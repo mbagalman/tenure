@@ -144,3 +144,176 @@ def test_requires_covariates():
 def test_predict_before_fit_raises():
     with pytest.raises(RuntimeError, match="not fitted"):
         TimeVaryingCox().risk_scores()
+
+
+# --- Path survival (DV3-4) --------------------------------------------------------------------
+
+
+def _varied_intervals(n: int = 400, seed: int = 0) -> pd.DataFrame:
+    """Counting-process data with VARIED event times (a non-degenerate baseline hazard)."""
+    rng = np.random.default_rng(seed)
+    o = pd.Timestamp("2024-01-01")
+    rows = []
+    for i in range(n):
+        x = float(rng.normal())
+        t = float(rng.exponential(40.0) * np.exp(-0.4 * x))
+        stop = min(max(1, round(t)), 120)
+        event = 1 if round(t) <= 120 else 0
+        if stop > 30:
+            rows.append(
+                {
+                    "cid": i,
+                    "origin": o,
+                    "start": o,
+                    "end": o + pd.Timedelta(days=30),
+                    "event": 0,
+                    "score": x,
+                }
+            )
+            rows.append(
+                {
+                    "cid": i,
+                    "origin": o,
+                    "start": o + pd.Timedelta(days=30),
+                    "end": o + pd.Timedelta(days=stop),
+                    "event": event,
+                    "score": x,
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "cid": i,
+                    "origin": o,
+                    "start": o,
+                    "end": o + pd.Timedelta(days=stop),
+                    "event": event,
+                    "score": x,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _varied_design() -> StudyDesign:
+    return StudyDesign.from_intervals(
+        _varied_intervals(),
+        id_col="cid",
+        origin_col="origin",
+        interval_start_col="start",
+        interval_end_col="end",
+        event_col="event",
+        covariate_cols=["score"],
+    )
+
+
+def _path(segments: list[tuple[float, float, float]]) -> StudyDesign:
+    """A single hypothetical customer's covariate path: list of (start_day, stop_day, score)."""
+    o = pd.Timestamp("2024-01-01")
+    rows = [
+        {
+            "cid": "H",
+            "origin": o,
+            "start": o + pd.Timedelta(days=a),
+            "end": o + pd.Timedelta(days=b),
+            "event": 0,
+            "score": sc,
+        }
+        for (a, b, sc) in segments
+    ]
+    return StudyDesign.from_intervals(
+        pd.DataFrame(rows),
+        id_col="cid",
+        origin_col="origin",
+        interval_start_col="start",
+        interval_end_col="end",
+        event_col="event",
+        covariate_cols=["score"],
+    )
+
+
+def test_constant_path_matches_baseline_proportional_hazards():
+    # A constant covariate path reduces to PH: S(t) = S0(t) ** exp(beta * x). Reference-match.
+    tvc = TimeVaryingCox().fit(_varied_design())
+    x0 = 0.5
+    sf = tvc.predict_survival(_path([(0.0, 30.0, x0), (30.0, 120.0, x0)]))
+
+    beta = float(tvc.fitter.params_["score"])
+    bs = tvc.fitter.baseline_survival_
+    partial = float(np.exp(beta * x0))
+    test_times = bs.index.to_numpy(dtype=float)
+    test_times = test_times[(test_times > 0) & (test_times <= 120)][:12]
+    got = sf.survival_at(test_times, group="path").sort_values("time")["survival"].to_numpy()
+    ref = np.array(
+        [float(bs.loc[bs.index <= t].iloc[-1, 0]) ** partial for t in np.sort(test_times)]
+    )
+    assert np.allclose(got, ref, atol=1e-9)
+
+
+def test_time_varying_path_matches_manual_integration():
+    tvc = TimeVaryingCox().fit(_varied_design())
+    sf = tvc.predict_survival(_path([(0.0, 30.0, 1.0), (30.0, 110.0, -1.0)]))
+
+    beta = float(tvc.fitter.params_["score"])
+    bch = tvc.fitter.baseline_cumulative_hazard_
+    bt = bch.index.to_numpy(dtype=float)
+    bv = bch.iloc[:, 0].to_numpy(dtype=float)
+
+    def h0(t):
+        idx = int(np.searchsorted(bt, t, side="right")) - 1
+        return bv[idx] if idx >= 0 else 0.0
+
+    p1, p2 = float(np.exp(beta * 1.0)), float(np.exp(beta * -1.0))
+    candidates = bt[(bt > 30) & (bt <= 110)]
+    t = float(candidates[len(candidates) // 2])
+    expected = float(np.exp(-(p1 * (h0(30.0) - h0(0.0)) + p2 * (h0(t) - h0(30.0)))))
+    got = float(sf.survival_at([t], group="path").iloc[0]["survival"])
+    assert np.isclose(got, expected, atol=1e-9)
+
+
+def test_path_survival_feeds_business_outputs():
+    # The predicted curve is a SurvivalFunction, so retention/RMST consume it unchanged (A3/A8).
+    tvc = TimeVaryingCox().fit(_varied_design())
+    sf = tvc.predict_survival(_path([(0.0, 30.0, 0.5), (30.0, 100.0, 0.5)]))
+    retention = tenure.retention_at(sf, [30, 60])
+    assert retention["retention"].between(0.0, 1.0).all()
+    assert float(tenure.rmst(sf, horizon=90).iloc[0]["rmst"]) > 0.0
+
+
+def test_predict_survival_requires_interval_path():
+    tvc = TimeVaryingCox().fit(_varied_design())
+    df = tenure.load_svod_demo(with_left_truncation=False, seed=0)
+    single = StudyDesign.from_event_dates(
+        df,
+        id_col="customer_id",
+        origin_col="signup_date",
+        churn_date_col="churn_date",
+        active_as_of="2026-05-31",
+    )
+    with pytest.raises(TenureValidationError, match="from_intervals"):
+        tvc.predict_survival(single)
+
+
+def test_predict_survival_requires_single_subject_path():
+    tvc = TimeVaryingCox().fit(_varied_design())
+    o = pd.Timestamp("2024-01-01")
+    df = pd.DataFrame(
+        {
+            "cid": ["A", "B"],
+            "origin": [o, o],
+            "start": [o, o],
+            "end": [o + pd.Timedelta(days=30), o + pd.Timedelta(days=30)],
+            "event": [0, 0],
+            "score": [0.1, 0.2],
+        }
+    )
+    two = StudyDesign.from_intervals(
+        df,
+        id_col="cid",
+        origin_col="origin",
+        interval_start_col="start",
+        interval_end_col="end",
+        event_col="event",
+        covariate_cols=["score"],
+    )
+    with pytest.raises(TenureValidationError, match="single hypothetical"):
+        tvc.predict_survival(two)

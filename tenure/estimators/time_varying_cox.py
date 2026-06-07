@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from lifelines import CoxTimeVaryingFitter
+from lifelines import CoxTimeVaryingFitter, KaplanMeierFitter
 
-from tenure._frame import ENTRY, EVENT, EXIT, ID
+from tenure._frame import ENTRY, EVENT, EXIT, ID, as_estimator_frame
+from tenure.estimators.survival import GroupCurve, SurvivalFunction
 from tenure.exceptions import TenureValidationError
 
 _ID = "__id__"
@@ -37,6 +38,7 @@ class TimeVaryingCox:
         self.l1_ratio = l1_ratio
         self._fitter: CoxTimeVaryingFitter | None = None
         self._design = None
+        self._support: tuple | None = None
 
     def fit(self, design) -> TimeVaryingCox:
         if not getattr(design, "interval", False):
@@ -60,7 +62,22 @@ class TimeVaryingCox:
         fitter.fit(frame, id_col=_ID, event_col=_EVENT, start_col=_START, stop_col=_STOP)
         self._fitter = fitter
         self._design = design
+        self._support = self._training_support(table)
         return self
+
+    @staticmethod
+    def _training_support(table: pd.DataFrame) -> tuple:
+        """At-risk support from the (counting-process) training cohort, for the predicted curves."""
+        ef = as_estimator_frame(table)
+        kmf = KaplanMeierFitter().fit(
+            durations=ef.duration, event_observed=ef.event, entry=ef.entry
+        )
+        event_table = kmf.event_table
+        risk_times = event_table.index.to_numpy(dtype=float)
+        n_at_risk = event_table["at_risk"].to_numpy(dtype=float)
+        events = risk_times[event_table["observed"].to_numpy(dtype=float) > 0]
+        last_event_time = float(events.max()) if events.size else 0.0
+        return risk_times, n_at_risk, last_event_time
 
     def _require_fitted(self) -> None:
         if self._fitter is None:
@@ -119,6 +136,82 @@ class TimeVaryingCox:
                 "risk_score": np.exp(log_ph),
             }
         )
+
+    def predict_survival(self, path, *, label: str = "path") -> SurvivalFunction:
+        """Survival curve for one hypothetical customer's covariate PATH (DV3-4).
+
+        ``path`` is a single-subject interval ``StudyDesign`` (built with ``from_intervals``) whose
+        rows give the covariate values over contiguous tenure intervals from 0. The curve integrates
+        the baseline hazard along the path,
+        ``S(t) = exp(-sum_k exp(beta^T x_k) * (H0(min(t, stop_k)) - H0(start_k)))``,
+        using lifelines' Breslow baseline cumulative hazard ``H0``. For a constant path this reduces
+        to the proportional-hazards ``S0(t) ** exp(beta^T x)`` (reference-matched). The curve is a
+        point estimate (no CI band, like static Cox) and is truncated at the path's last stop -- no
+        extrapolation beyond where the path defines covariates. Returned as a ``SurvivalFunction``,
+        so the v0.1 business outputs (retention/RMST/LTV) consume it unchanged (A3/A8).
+        """
+        self._require_fitted()
+        if not getattr(path, "interval", False):
+            raise TenureValidationError(
+                "predict_survival expects a customer path built with StudyDesign.from_intervals."
+            )
+        derived = path.derive().sort_values(ENTRY).reset_index(drop=True)
+        if derived[ID].nunique() != 1:
+            raise TenureValidationError(
+                "predict_survival expects a single hypothetical customer (one id) per path."
+            )
+        starts = derived[ENTRY].to_numpy(dtype=float)
+        stops = derived[EXIT].to_numpy(dtype=float)
+        if starts[0] != 0.0:
+            raise TenureValidationError(
+                "predict_survival expects the path to start at tenure 0 (the customer's origin)."
+            )
+
+        encoded = path.encode_covariates(derived).reindex(
+            columns=self._fitter.params_.index, fill_value=0.0
+        )
+        beta = self._fitter.params_.to_numpy(dtype=float)
+        partial = np.exp(encoded.to_numpy(dtype=float) @ beta)
+
+        bch = self._fitter.baseline_cumulative_hazard_
+        bch_times = bch.index.to_numpy(dtype=float)
+        bch_values = bch.iloc[:, 0].to_numpy(dtype=float)
+
+        def cumulative_baseline(t: float) -> float:
+            idx = int(np.searchsorted(bch_times, t, side="right")) - 1
+            return float(bch_values[idx]) if idx >= 0 else 0.0
+
+        def path_cumulative_hazard(t: float) -> float:
+            total = 0.0
+            for a, b, p in zip(starts, stops, partial, strict=True):
+                if t <= a:
+                    break
+                upper = min(t, b)
+                total += p * (cumulative_baseline(upper) - cumulative_baseline(a))
+            return total
+
+        max_stop = float(stops[-1])
+        grid = bch_times[(bch_times > 0.0) & (bch_times <= max_stop)]
+        times = np.concatenate([[0.0], grid])
+        survival = np.array([np.exp(-path_cumulative_hazard(t)) for t in times])
+
+        risk_times, n_at_risk, last_event_time = self._support
+        curve = GroupCurve(
+            times=times,
+            survival=survival,
+            ci_lower=survival.copy(),
+            ci_upper=survival.copy(),
+            median=self._median(times, survival),
+            risk_times=risk_times,
+            n_at_risk=n_at_risk,
+            last_event_time=last_event_time,
+        )
+        return SurvivalFunction({label: curve}, time_unit=self._design.time_unit)
+
+    @staticmethod
+    def _median(times: np.ndarray, survival: np.ndarray) -> float:
+        below = np.where(survival <= 0.5)[0]
+        return float(times[below[0]]) if below.size else float("inf")
 
     def __repr__(self) -> str:
         if self._fitter is None:

@@ -8,9 +8,11 @@ Tenure makes the statistically correct design the default and makes biased desig
 to produce by accident, via a plain-language **study-design audit** that runs *before*
 any number is returned.
 
-> **Status: v0.2 (alpha).** v0.1 = the audit + Kaplan-Meier + retention/LTV. v0.2 adds risk
-> modeling (Cox PH, churn-risk scoring, PH diagnostics). The public API is settling; minor changes
-> are still possible. The distribution name on PyPI is not final.
+> **Status: v0.3 (alpha).** v0.1 = the audit + Kaplan-Meier + retention/LTV. v0.2 adds risk
+> modeling (Cox PH, churn-risk scoring, PH diagnostics). v0.3 adds the time-varying data model
+> (interval / counting-process schema, time-varying Cox) that *prevents* immortal-time bias, plus
+> landmarking. The public API is settling; minor changes are still possible. The distribution name
+> on PyPI is not final.
 
 ## Why this vs lifelines?
 
@@ -29,7 +31,7 @@ that carry their audit caveats. Run it *before* you trust a curve.
 | **TNR001** | Left-truncation / delayed entry -- event history that does not reach back to a customer's origin (a "Window-Cut" study, e.g. a billing migration) must be modeled with delayed entry, or retention/LTV are biased upward. | block |
 | **TNR002** | Time-origin confusion -- using the observation-window start as t=0 instead of true signup. | block |
 | **TNR003** | Event/censoring mislabeling -- unmapped exit statuses (status schema), and a warning when a non-churn exit is mapped to `censored` (informative censoring). | block / warn |
-| **TNR004** | Immortal-time -- a covariate level that only appears for higher-tenure customers (a data-driven quantile shift test). | warn |
+| **TNR004** | Immortal-time -- a covariate level that only appears for higher-tenure customers (a data-driven quantile shift test). On an interval/time-varying design the bias is structurally prevented, so this passes. | warn |
 | **TNR005** | Weak / over-extrapolated horizon -- RMST/LTV past the supported horizon are truncated-and-relabeled rather than read off the flat KM tail. | warn |
 
 Each check is bypassable with `strictness="warn"` and clearable with an explicit attestation
@@ -98,6 +100,45 @@ print(diag.ok, diag.violations)
 ```
 
 Nelson-Aalen cumulative hazard is also available (`tenure.NelsonAalen`, `plot_cumulative_hazard`).
+
+## Time-varying covariates (v0.3): the immortal-time fix
+
+Customer risk is driven by behavior that changes over the lifetime -- usage, plan, support
+contacts, promos. A static analysis that classifies customers by a *future-looking* attribute
+("ever upgraded") credits the upgraded group with the immortal person-time before the upgrade and
+invents a protective effect. v0.3 fixes this at the data model: an interval (counting-process)
+schema where covariates vary per interval, and a `TimeVaryingCox` that consumes it. The upgrade is
+encoded `0` before it happens and `1` after, so it cannot leak future survival.
+
+```python
+result = tenure.naive_vs_corrected_immortal_demo()    # the upgrade truly has no effect (HR = 1)
+print(f"naive (static ever-upgraded) HR: {result['naive_hazard_ratio']:.3f}")   # ~0.62, illusory
+print(f"corrected (time-varying)     HR: {result['corrected_hazard_ratio']:.3f}")  # ~1.02, truth
+# naive audit warns TNR004; the interval-design audit passes it (the bias cannot occur).
+```
+
+Build an interval design and fit the time-varying Cox:
+
+```python
+study = tenure.StudyDesign.from_intervals(
+    panel, id_col="customer_id", origin_col="signup_date",
+    interval_start_col="period_start", interval_end_col="period_end", event_col="churned",
+    covariate_cols=["plan", "monthly_usage", "promo_active"],   # may change each interval
+)
+tv = tenure.TimeVaryingCox().fit(study)
+print(tv.summary)                       # covariate, coef, hazard_ratio, p_value
+print(tv.risk_scores().head())          # per-interval, time-varying partial hazard ratio
+
+# Survival for one hypothetical customer's covariate PATH -> a SurvivalFunction the outputs consume:
+path = tenure.StudyDesign.from_intervals(one_customer_panel, id_col=..., covariate_cols=[...])
+curve = tv.predict_survival(path)
+print(tenure.rmst(curve, horizon=365))
+```
+
+**Landmarking.** For a static model that still avoids immortal-time, `tenure.landmark(study, L)`
+keeps only subjects at risk at tenure `L`, fixes their covariates to the value as of `L`, and
+returns a single-interval design (delayed entry at `L`) that `CoxPH` / `KaplanMeier` consume
+unchanged.
 
 ## Development
 
