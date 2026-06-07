@@ -24,11 +24,14 @@ from tenure.outputs import (
     survival_weighted_ltv,
 )
 from tenure.study_design import StudyDesign
+from tenure.workflow import RetentionResult, RetentionStudy
 
 __version__ = "0.1.0.dev0"
 
 __all__ = [
     "StudyDesign",
+    "RetentionStudy",
+    "RetentionResult",
     "KaplanMeier",
     "SurvivalFunction",
     "retention_at",
