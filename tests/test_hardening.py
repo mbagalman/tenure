@@ -134,6 +134,17 @@ def test_audit_acknowledges_unmapped_then_fit_allowed():
     assert km.survival_ is not None
 
 
+def test_blocking_audit_does_not_mark_design_fittable():
+    # A strict audit that BLOCKS must not leave the design fittable: a caller catching the error
+    # could otherwise bypass ensure_estimable() and fit the unmapped-status cohort anyway.
+    design = _unmapped_design()
+    with pytest.raises(tenure.AuditBlockedError):
+        tenure.audit(design)  # default strictness='block' -> raises on TNR003
+    assert design.audited is False
+    with pytest.raises(TenureValidationError, match="status_map"):
+        tenure.KaplanMeier().fit(design)
+
+
 def test_guided_workflow_handles_unmapped_in_warn_mode():
     study = tenure.RetentionStudy.from_status(
         _UNMAPPED_DF,

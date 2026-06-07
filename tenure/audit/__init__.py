@@ -32,10 +32,12 @@ def audit(design, *, strictness: str = "block") -> AuditReport:
         results.append(result)
 
     report = AuditReport(results=results, strictness=strictness)
-    # Mark the design audited so estimators may materialize it even when it dropped unmapped-status
-    # rows -- the user has now been shown that finding (TNR003).
-    if hasattr(design, "audited"):
-        design.audited = True
     if report.blocks:  # only possible under strictness='block'
         raise AuditBlockedError(report)
+    # Mark the design audited ONLY on a clean (non-blocking) return, so estimators may materialize
+    # it even when it dropped unmapped-status rows -- the user has now been shown that finding
+    # (TNR003). Marking before the raise would let a caller catch AuditBlockedError and then fit a
+    # blocked design, bypassing ensure_estimable().
+    if hasattr(design, "audited"):
+        design.audited = True
     return report
