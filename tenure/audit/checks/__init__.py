@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
-from tenure.audit.checks import tnr001_left_truncation, tnr003_exit_mapping  # noqa: F401
+from tenure.audit.checks import (  # noqa: F401
+    tnr001_left_truncation,
+    tnr002_time_origin,
+    tnr003_exit_mapping,
+    tnr004_immortal_time,
+)
 
 __all__: list[str] = []

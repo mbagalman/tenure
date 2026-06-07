@@ -10,6 +10,8 @@ The interval/counting-process schema arrives in a later (v0.3) slice.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -17,6 +19,7 @@ from tenure._frame import ENTRY, EVENT, EXIT, ID, ORIGIN, STATUS, to_tenure
 from tenure.exceptions import TenureValidationError
 
 _VALID_INTENTS = ("event", "censored", "exclude")
+_DEDUP_POLICIES = ("error", "keep-first", "keep-most-recent")
 
 
 def _coerce_ts(value, name: str) -> pd.Timestamp | None:
@@ -34,25 +37,44 @@ def _check_columns(df: pd.DataFrame, required: list[str]) -> None:
         raise TenureValidationError(f"Missing required column(s): {missing}")
 
 
-def _check_unique_ids(ids: pd.Series, id_col: str) -> None:
-    if ids.duplicated().any():
-        n_dup = int(ids.duplicated().sum())
+def _resolve_duplicates(data: pd.DataFrame, id_col: str, dedup_policy: str) -> pd.DataFrame:
+    """Apply the duplicate-id policy. Default 'error' raises (no silent data mutation).
+
+    'keep-first' is the unbiased dedup; 'keep-most-recent' warns (it discards won-back
+    customers' earlier spells -- a selection bias that inflates survival).
+    """
+    if dedup_policy not in _DEDUP_POLICIES:
         raise TenureValidationError(
-            f"{n_dup} duplicate value(s) in id_col={id_col!r}; each row must be one analysis "
-            "unit. Supply a per-spell unique key (e.g. subscription_id) as id_col, or dedup with "
-            "an explicit policy -- keep-first is unbiased; keep-most-recent introduces win-back "
-            "selection bias."
+            f"Unknown dedup_policy {dedup_policy!r}; use one of {_DEDUP_POLICIES}."
         )
+    if not data[id_col].duplicated().any():
+        return data
+    n_dup = int(data[id_col].duplicated().sum())
+    if dedup_policy == "error":
+        raise TenureValidationError(
+            f"{n_dup} duplicate value(s) in id_col={id_col!r}. Each row must be one analysis "
+            "unit. Pass a per-spell unique key (e.g. subscription_id) as id_col, or choose a "
+            "dedup_policy: 'keep-first' (unbiased) or 'keep-most-recent' (warns -- win-back "
+            "selection bias)."
+        )
+    if dedup_policy == "keep-most-recent":
+        warnings.warn(
+            f"dedup_policy='keep-most-recent' kept the last of {n_dup} duplicate id row(s); this "
+            "discards earlier spells of won-back customers and biases survival upward. Prefer "
+            "'keep-first' or a per-spell subscription_id.",
+            stacklevel=3,
+        )
+    keep = "last" if dedup_policy == "keep-most-recent" else "first"
+    return data.drop_duplicates(subset=id_col, keep=keep).reset_index(drop=True)
 
 
 class StudyDesign:
     """An explicit, validated churn study design and its derived canonical table.
 
-    The audit and estimators read the derived canonical table plus named design attributes
-    (origin, ``analysis_start``, ``event_observed_from``, ``entry_modeled``,
-    ``includes_pre_entry_churners``) -- kept deliberately distinct (the product's spine). Status
-    designs additionally carry ``status_map``, ``n_excluded``, ``n_unmapped``,
-    ``unmapped_statuses``, and ``informative_censoring_statuses``.
+    The audit and estimators read the derived canonical table plus named design attributes --
+    origin, ``analysis_start``, ``event_observed_from``, ``entry_modeled``,
+    ``includes_pre_entry_churners``, the attestations, and (status schema) ``status_map`` and
+    the excluded/unmapped/informative-censoring tracking.
     """
 
     def __init__(
@@ -65,6 +87,8 @@ class StudyDesign:
         includes_pre_entry_churners: bool | None,
         group_cols: list[str],
         time_unit: str,
+        attest_origin_correct: bool | None = None,
+        attest_invariant_covariates: list | None = None,
         status_map: dict | None = None,
         n_excluded: int = 0,
         n_unmapped: int = 0,
@@ -78,6 +102,8 @@ class StudyDesign:
         self.includes_pre_entry_churners = includes_pre_entry_churners
         self.group_cols = list(group_cols)
         self.time_unit = time_unit
+        self.attest_origin_correct = attest_origin_correct
+        self.attest_invariant_covariates = list(attest_invariant_covariates or [])
         self.status_map = status_map
         self.n_excluded = n_excluded
         self.n_unmapped = n_unmapped
@@ -119,6 +145,8 @@ class StudyDesign:
         entry_col: str | None,
         includes_pre_entry_churners,
         time_unit: str,
+        attest_origin_correct=None,
+        attest_invariant_covariates=None,
         status_map=None,
         n_excluded: int = 0,
         n_unmapped: int = 0,
@@ -178,6 +206,8 @@ class StudyDesign:
             includes_pre_entry_churners=includes_pre_entry_churners,
             group_cols=group_cols,
             time_unit=time_unit,
+            attest_origin_correct=attest_origin_correct,
+            attest_invariant_covariates=attest_invariant_covariates,
             status_map=status_map,
             n_excluded=n_excluded,
             n_unmapped=n_unmapped,
@@ -200,6 +230,9 @@ class StudyDesign:
         includes_pre_entry_churners: bool | None = None,
         group_cols: list[str] | None = None,
         time_unit: str = "day",
+        dedup_policy: str = "error",
+        attest_origin_correct: bool | None = None,
+        attest_invariant_covariates: list[str] | None = None,
     ) -> StudyDesign:
         """Build a design from origin + churn-date columns (null churn date = active)."""
         group_cols = list(group_cols or [])
@@ -208,8 +241,7 @@ class StudyDesign:
             required.append(entry_col)
         _check_columns(df, required)
 
-        data = df.reset_index(drop=True)
-        _check_unique_ids(data[id_col], id_col)
+        data = _resolve_duplicates(df.reset_index(drop=True), id_col, dedup_policy)
 
         active_as_of_ts = _coerce_ts(active_as_of, "active_as_of")
         if active_as_of_ts is None:
@@ -236,6 +268,8 @@ class StudyDesign:
             entry_col=entry_col,
             includes_pre_entry_churners=includes_pre_entry_churners,
             time_unit=time_unit,
+            attest_origin_correct=attest_origin_correct,
+            attest_invariant_covariates=attest_invariant_covariates,
         )
 
     @classmethod
@@ -255,13 +289,15 @@ class StudyDesign:
         includes_pre_entry_churners: bool | None = None,
         group_cols: list[str] | None = None,
         time_unit: str = "day",
+        dedup_policy: str = "error",
+        attest_origin_correct: bool | None = None,
+        attest_invariant_covariates: list[str] | None = None,
     ) -> StudyDesign:
         """Build a design from origin + exit + status columns via an explicit ``status_map``.
 
         Each status maps to one of {event, censored, exclude}. Excluded rows are dropped and
         counted (``n_excluded``); statuses absent from the map are also dropped and counted
-        (``n_unmapped``) and flagged by the audit (TNR003) -- they are never silently coerced
-        into an outcome.
+        (``n_unmapped``) and flagged by the audit (TNR003) -- never silently coerced.
         """
         group_cols = list(group_cols or [])
         required = [id_col, origin_col, exit_col, status_col, *group_cols]
@@ -275,8 +311,7 @@ class StudyDesign:
                 f"status_map values must be in {_VALID_INTENTS}; got {sorted(bad_intents)}."
             )
 
-        data = df.reset_index(drop=True)
-        _check_unique_ids(data[id_col], id_col)
+        data = _resolve_duplicates(df.reset_index(drop=True), id_col, dedup_policy)
 
         active_as_of_ts = _coerce_ts(active_as_of, "active_as_of")
         if active_as_of_ts is None:
@@ -317,6 +352,8 @@ class StudyDesign:
             entry_col=entry_col,
             includes_pre_entry_churners=includes_pre_entry_churners,
             time_unit=time_unit,
+            attest_origin_correct=attest_origin_correct,
+            attest_invariant_covariates=attest_invariant_covariates,
             status_map=dict(status_map),
             n_excluded=n_excluded,
             n_unmapped=n_unmapped,
