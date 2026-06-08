@@ -9,13 +9,19 @@ the reporting layer plots; compute stays separate from the plot (A10).
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 from lifelines import KaplanMeierFitter
 
 from tenure.exceptions import TenureValidationError
-from tenure.validation.metrics import _conditional_survival_matrix
-from tenure.validation.result import ValidationResult
+from tenure.validation.metrics import (
+    _EXTRAPOLATION_WARN_FRACTION,
+    _conditional_survival_matrix,
+    _model_support_warning,
+)
+from tenure.validation.result import VAL002_HORIZON_SUPPORT, ValidationResult
 
 
 def calibration(model, test_cohort, *, horizon: float, n_bins: int = 10) -> ValidationResult:
@@ -23,10 +29,23 @@ def calibration(model, test_cohort, *, horizon: float, n_bins: int = 10) -> Vali
 
     ``.table`` has one row per bin: ``bin``, ``mean_predicted``, ``observed`` (KM at the horizon),
     and ``n``. ``.metadata['calibration_error']`` is the support-weighted mean
-    ``|mean_predicted - observed|`` (0 = perfectly calibrated).
+    ``|mean_predicted - observed|`` (0 = perfectly calibrated). Like Brier, extrapolation beyond the
+    fitted model's tenure support is recorded (``n_extrapolated`` / ``pct_extrapolated``) and a
+    material fraction emits VAL002 -- so a tidy-looking diagram cannot hide extrapolated points.
     """
     horizon = float(horizon)
-    estimate, _n_extrap = _conditional_survival_matrix(model, test_cohort, np.array([horizon]))
+    if not np.isfinite(horizon) or horizon <= 0.0:
+        raise TenureValidationError(
+            "calibration horizon must be finite and > 0 (a post-cutoff eval-clock duration)."
+        )
+    if n_bins < 2:
+        raise TenureValidationError("calibration n_bins must be >= 2.")
+
+    estimate, n_extrapolated = _conditional_survival_matrix(model, test_cohort, np.array([horizon]))
+    pct_extrapolated = n_extrapolated / estimate.size if estimate.size else 0.0
+    material = pct_extrapolated >= _EXTRAPOLATION_WARN_FRACTION
+    if material:
+        warnings.warn(_model_support_warning(pct_extrapolated), UserWarning, stacklevel=2)
     predicted = estimate[:, 0]
     durations = test_cohort.table["eval_duration"].to_numpy(dtype=float)
     events = test_cohort.table["eval_event"].to_numpy(dtype=int)
@@ -67,6 +86,8 @@ def calibration(model, test_cohort, *, horizon: float, n_bins: int = 10) -> Vali
         "n_bins": int(len(table)),
         "prediction_time": test_cohort.prediction_time,
         "n_test": int(test_cohort.n),
-        "warnings": [],
+        "n_extrapolated": int(n_extrapolated),  # cells held flat beyond model support
+        "pct_extrapolated": float(pct_extrapolated),
+        "warnings": [VAL002_HORIZON_SUPPORT] if material else [],
     }
     return ValidationResult(table=table, metadata=metadata)
