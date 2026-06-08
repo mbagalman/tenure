@@ -182,3 +182,31 @@ def plot_cumulative_hazard(estimator, *, ci: bool = True, ax=None, figsize=(8, 5
     if hazard.groups != ["overall"]:
         main_ax.legend(title="group", fontsize=9)
     return main_ax
+
+
+def plot_calibration(result, *, ax=None, figsize=(6, 6)):
+    """Plot a calibration (reliability) diagram from a ``calibration`` ValidationResult.
+
+    Mean predicted survival (x) vs Kaplan-Meier observed survival (y), one point per bin sized by
+    the bin's subject count, against the diagonal. Points on the diagonal == well calibrated.
+    """
+    table = result.table
+    main_ax = ax if ax is not None else plt.subplots(figsize=figsize)[1]
+    main_ax.plot([0, 1], [0, 1], linestyle="--", color="gray", linewidth=1, label="perfect")
+    counts = table["n"].to_numpy(dtype=float)
+    sizes = 20.0 + 180.0 * counts / counts.max() if counts.max() > 0 else 40.0
+    main_ax.scatter(
+        table["mean_predicted"], table["observed"], s=sizes, color="C0", zorder=3, label="bins"
+    )
+    main_ax.set_xlim(0.0, 1.0)
+    main_ax.set_ylim(0.0, 1.0)
+    main_ax.set_xlabel("Predicted survival")
+    main_ax.set_ylabel("Observed survival (Kaplan-Meier)")
+    horizon = result.metadata.get("horizon")
+    error = result.metadata.get("calibration_error")
+    title = "Calibration"
+    if horizon is not None and error is not None:
+        title = f"Calibration at horizon {horizon:.0f} (error {error:.3f})"
+    main_ax.set_title(title)
+    main_ax.legend(loc="lower right", fontsize=9)
+    return main_ax

@@ -34,12 +34,18 @@ from tenure.outputs import (
     summarize,
     survival_weighted_ltv,
 )
-from tenure.plotting import plot_cumulative_hazard, plot_log_log_survival, plot_survival
+from tenure.plotting import (
+    plot_calibration,
+    plot_cumulative_hazard,
+    plot_log_log_survival,
+    plot_survival,
+)
 from tenure.study_design import StudyDesign
 from tenure.validation import (
     TestCohort,
     ValidationResult,
     brier,
+    calibration,
     concordance,
     integrated_brier,
     random_split,
@@ -47,7 +53,7 @@ from tenure.validation import (
 )
 from tenure.workflow import RetentionResult, RetentionStudy
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 __all__ = [
     "StudyDesign",
@@ -87,6 +93,8 @@ __all__ = [
     "concordance",
     "brier",
     "integrated_brier",
+    "calibration",
+    "plot_calibration",
     "TestCohort",
     "ValidationResult",
     "__version__",

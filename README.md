@@ -8,10 +8,11 @@ Tenure makes the statistically correct design the default and makes biased desig
 to produce by accident, via a plain-language **study-design audit** that runs *before*
 any number is returned.
 
-> **Status: v0.3 (alpha).** v0.1 = the audit + Kaplan-Meier + retention/LTV. v0.2 adds risk
+> **Status: v0.4 (alpha).** v0.1 = the audit + Kaplan-Meier + retention/LTV. v0.2 adds risk
 > modeling (Cox PH, churn-risk scoring, PH diagnostics). v0.3 adds the time-varying data model
 > (interval / counting-process schema, time-varying Cox) that *prevents* immortal-time bias, plus
-> landmarking. The public API is settling; minor changes are still possible. The distribution name
+> landmarking. v0.4 adds out-of-time validation (temporal holdout, C-index, IPCW Brier/IBS,
+> calibration). The public API is settling; minor changes are still possible. The distribution name
 > on PyPI is not final.
 
 ## Why this vs lifelines?
@@ -143,6 +144,40 @@ print(tenure.rmst(curve, horizon=365))
 keeps only subjects at risk at tenure `L`, fixes their covariates to the value as of `L`, and
 returns a single-interval design (delayed entry at `L`) that `CoxPH` / `KaplanMeier` consume
 unchanged.
+
+## Validation (v0.4): prove it generalizes forward in time
+
+A model that fits the past can still fail on the future. v0.4 evaluates predictions the *honest* way
+-- out-of-time -- and makes the biased way (a random split that leaks the future) hard to do by
+accident. `temporal_holdout` splits at a calendar cutoff: training is censored at the cutoff (no
+post-cutoff event can leak in), and the test cohort is the customers still active at the cutoff,
+scored on what actually happened *after* it.
+
+```python
+train, test = tenure.temporal_holdout(study, cutoff="2024-01-01")
+cox = tenure.CoxPH().fit(train)
+
+# Discrimination: do higher-risk customers churn sooner? (0.5 = chance, 1.0 = perfect)
+print(tenure.concordance(cox, test).estimate)
+
+# Accuracy + calibration over a horizon: time-dependent IPCW Brier score and its integral (lower
+# is better). Times must be a positive, increasing grid; extrapolation past support is reported.
+print(tenure.brier(cox, test, [30, 60, 90]).table)
+print(tenure.integrated_brier(cox, test, [30, 60, 90]).estimate)
+
+# Reliability: predicted vs Kaplan-Meier-observed survival, by risk bin.
+cal = tenure.calibration(cox, test, horizon=90)
+print(cal.metadata["calibration_error"])        # support-weighted |predicted - observed|
+tenure.plot_calibration(cal)                     # reliability diagram vs the diagonal
+
+# tenure.random_split(study) exists but warns (VAL001): survival validation should be forward-in-time.
+```
+
+Every metric returns a `ValidationResult` (`.table` + `.metadata` with the prediction time, model
+type, train/test sizes, and any `VAL00x` support warnings) so a validation report travels with its
+provenance. (C-index wraps lifelines; the Brier score / IBS are implemented directly to keep the
+core dependency-light. Brier/IBS and calibration support `CoxPH` and overall survival curves;
+time-varying-Cox accuracy metrics are a later addition.)
 
 ## Development
 

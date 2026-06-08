@@ -7,6 +7,7 @@ metrics (C-index, Brier/IBS) and calibration land in later v0.4 slices.
 
 from __future__ import annotations
 
+from tenure.validation.calibration import calibration
 from tenure.validation.metrics import brier, concordance, integrated_brier
 from tenure.validation.result import (
     VAL001_RANDOM_SPLIT,
@@ -22,6 +23,7 @@ __all__ = [
     "concordance",
     "brier",
     "integrated_brier",
+    "calibration",
     "TestCohort",
     "ValidationResult",
     "VAL001_RANDOM_SPLIT",
