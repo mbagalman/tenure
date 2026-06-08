@@ -129,7 +129,7 @@ def test_cox_conditional_matrix_matches_independent_fitter():
     train, test = tenure.temporal_holdout(design, "2022-10-01")
     cox = tenure.CoxPH().fit(train)
     times = np.array([20.0, 50.0])
-    est = _conditional_survival_matrix(cox, test, times)
+    est, _beyond = _conditional_survival_matrix(cox, test, times)
 
     encoded = cox.design.encode_covariates(test.table).reindex(
         columns=cox.fitter.params_.index, fill_value=0.0
@@ -191,3 +191,33 @@ def test_integrated_brier_needs_two_times():
     cox = tenure.CoxPH().fit(train)
     with pytest.raises(TenureValidationError, match="2 time"):
         tenure.integrated_brier(cox, test, [60])
+
+
+def test_brier_rejects_nonpositive_times():
+    design = _scored_design()
+    train, test = tenure.temporal_holdout(design, "2022-10-01")
+    cox = tenure.CoxPH().fit(train)
+    with pytest.raises(TenureValidationError, match="> 0"):
+        tenure.brier(cox, test, [-1, 30])
+
+
+def test_integrated_brier_rejects_unsorted_or_duplicate_times():
+    # An unsorted or duplicate grid would silently change the trapezoid IBS -- reject it.
+    design = _scored_design()
+    train, test = tenure.temporal_holdout(design, "2022-10-01")
+    cox = tenure.CoxPH().fit(train)
+    with pytest.raises(TenureValidationError, match="increasing"):
+        tenure.integrated_brier(cox, test, [90, 30, 60])
+    with pytest.raises(TenureValidationError, match="increasing"):
+        tenure.integrated_brier(cox, test, [30, 30, 60])
+
+
+def test_brier_warns_val002_beyond_model_support():
+    # Times within the test follow-up but, for the longest-tenure subjects, beyond the fitted
+    # model's tenure support after conditioning (eval_start + t) -> flat extrapolation -> VAL002.
+    design = _scored_design()
+    train, test = tenure.temporal_holdout(design, "2022-10-01")
+    cox = tenure.CoxPH().fit(train)
+    with pytest.warns(UserWarning, match="VAL002"):
+        result = tenure.brier(cox, test, [30, 60])
+    assert "VAL002_HORIZON_SUPPORT" in result.metadata["warnings"]

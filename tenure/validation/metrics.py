@@ -12,13 +12,16 @@ model-agnostic:
 - A raw per-subject risk array (advanced / testing).
 
 WHY the Brier score / IBS below are hand-rolled rather than wrapped from ``scikit-survival`` (the
-usual reference for IPCW Brier/IBS): scikit-survival does not install on this project's environment
-(Python 3.14) -- its transitive dependency ``ecos`` ships no cp314 wheel and the source build needs
-a C/C++ toolchain. We also could not run it locally to use as a test oracle. So, to keep the core
-dependency-light (numpy + lifelines, no compiled extras) and testable everywhere, the IPCW Brier
-score and IBS are implemented directly here and validated against hand-computed references and known
-properties (no-censoring reduces to the plain Brier; a perfect model scores 0; a constant 0.5
-predictor scores 0.25). Revisit wrapping scikit-survival once it provides Python 3.14 wheels.
+usual reference for IPCW Brier/IBS): we keep Tenure's core dependency-light (numpy + lifelines) with
+no compiled/solver extras. scikit-survival pulls a heavier stack including compiled solver
+dependencies (e.g. ``ecos``/``osqp``); on this project's environment (Python 3.14) that install
+failed building ``ecos`` from source, which also meant we could not run it locally as a test oracle.
+Wheel availability for new Python versions changes over time, so this is a "stay light / don't
+require compiled extras" choice, not a permanent installability claim. The IPCW Brier score and IBS
+are implemented directly here and validated against hand-computed references and known properties
+(no-censoring reduces to the plain Brier; a perfect model scores 0; a constant 0.5 predictor scores
+0.25). If a scikit-survival cross-check is wanted, it can be run out-of-band in an environment where
+it installs.
 """
 
 from __future__ import annotations
@@ -138,20 +141,28 @@ def _step(col: np.ndarray, tindex: np.ndarray, q: float) -> float:
     return float(col[idx]) if idx >= 0 else 1.0
 
 
-def _condition_columns(S, tindex, starts, times) -> np.ndarray:
-    """Per-subject conditional survival S(start_i + t)/S(start_i) on the eval clock."""
+def _condition_columns(S, tindex, starts, times) -> tuple[np.ndarray, bool]:
+    """Per-subject conditional survival S(start_i + t)/S(start_i) on the eval clock.
+
+    Also reports ``beyond_support`` = whether any query ``start_i + t`` exceeded the fitted curve's
+    last time, where the step lookup holds the last survival value flat (extrapolation, VAL002).
+    """
     n, m = S.shape[1], len(times)
+    max_support = float(tindex[-1]) if len(tindex) else 0.0
     est = np.empty((n, m))
+    beyond_support = False
     for i in range(n):
         col = S[:, i]
         s_start = _step(col, tindex, starts[i])
         for j in range(m):
-            s_q = _step(col, tindex, starts[i] + times[j])
-            est[i, j] = (s_q / s_start) if s_start > 0 else 0.0
-    return np.clip(est, 0.0, 1.0)
+            q = starts[i] + times[j]
+            if q > max_support:
+                beyond_support = True
+            est[i, j] = (_step(col, tindex, q) / s_start) if s_start > 0 else 0.0
+    return np.clip(est, 0.0, 1.0), beyond_support
 
 
-def _conditional_survival_matrix(model, test_cohort, times) -> np.ndarray:
+def _conditional_survival_matrix(model, test_cohort, times) -> tuple[np.ndarray, bool]:
     """(n_test, n_times) predicted survival on the eval clock, dispatched by model type (A3)."""
     starts = test_cohort.table["eval_start"].to_numpy(dtype=float)
     fitter = getattr(model, "fitter", None)
@@ -184,6 +195,30 @@ def _conditional_survival_matrix(model, test_cohort, times) -> np.ndarray:
         "Time-varying / grouped Brier needs the full pre-cutoff covariate path and is not yet "
         "supported."
     )
+
+
+_MODEL_SUPPORT_WARNING = (
+    f"{VAL002_HORIZON_SUPPORT}: some predictions fall beyond the fitted model's tenure support "
+    "(eval_start + time); survival is held flat past the last fitted time."
+)
+
+
+def _validate_times(times) -> np.ndarray:
+    """Reject time grids that would silently corrupt the score: non-finite, non-positive, or not
+    strictly increasing (which also rejects duplicates and unsorted grids -- the trapezoid IBS and
+    the per-time scores assume a clean, ordered eval-clock grid)."""
+    times = np.atleast_1d(np.asarray(times, dtype=float))
+    if not np.isfinite(times).all():
+        raise TenureValidationError("Brier times must be finite.")
+    if (times <= 0.0).any():
+        raise TenureValidationError(
+            "Brier times must be > 0 (they are post-cutoff eval-clock durations)."
+        )
+    if times.size > 1 and not np.all(np.diff(times) > 0):
+        raise TenureValidationError(
+            "Brier times must be strictly increasing (sorted, with no duplicates)."
+        )
+    return times
 
 
 def _supported_times(times: np.ndarray, durations: np.ndarray) -> tuple[np.ndarray, bool]:
@@ -237,7 +272,7 @@ def _eval_arrays(test_cohort):
     )
 
 
-def _brier_metadata(model, test_cohort, times, dropped) -> dict:
+def _brier_metadata(model, test_cohort, times, support_warning) -> dict:
     train_design = getattr(model, "design", None)
     return {
         "prediction_time": test_cohort.prediction_time,
@@ -248,7 +283,7 @@ def _brier_metadata(model, test_cohort, times, dropped) -> dict:
             int(train_design.canonical[ID].nunique()) if train_design is not None else None
         ),
         "n_test": int(test_cohort.n),
-        "warnings": [VAL002_HORIZON_SUPPORT] if dropped else [],
+        "warnings": [VAL002_HORIZON_SUPPORT] if support_warning else [],
     }
 
 
@@ -256,15 +291,18 @@ def brier(model, test_cohort, times) -> ValidationResult:
     """Time-dependent IPCW Brier score of ``model`` on a held-out ``TestCohort`` at each time.
 
     Lower is better (0 = perfect). Predictions are conditional survival on the eval clock; censoring
-    is handled by inverse-probability-of-censoring weighting. Times beyond the cohort's follow-up
-    are dropped with a VAL002 warning. Returns a ``ValidationResult`` (``.table`` = [time, brier]).
+    is handled by inverse-probability-of-censoring weighting. ``times`` must be finite, > 0, and
+    strictly increasing. Times beyond the cohort's follow-up -- or beyond the fitted model's tenure
+    support -- get a VAL002 warning. Returns a ``ValidationResult`` (``.table`` = [time, brier]).
     """
-    times = np.atleast_1d(np.asarray(times, dtype=float))
+    times = _validate_times(times)
     durations, events = _eval_arrays(test_cohort)
     times, dropped = _supported_times(times, durations)
-    estimate = _conditional_survival_matrix(model, test_cohort, times)
+    estimate, beyond = _conditional_survival_matrix(model, test_cohort, times)
+    if beyond:
+        warnings.warn(_MODEL_SUPPORT_WARNING, UserWarning, stacklevel=2)
     scores = _ipcw_brier_scores(durations, events, estimate, times)
-    metadata = {"metric": "brier", **_brier_metadata(model, test_cohort, times, dropped)}
+    metadata = {"metric": "brier", **_brier_metadata(model, test_cohort, times, dropped or beyond)}
     return ValidationResult(table=pd.DataFrame({"time": times, "brier": scores}), metadata=metadata)
 
 
@@ -275,14 +313,16 @@ def integrated_brier(model, test_cohort, times) -> ValidationResult:
     Requires at least two supported time points. Returns a ``ValidationResult`` (``.estimate`` is
     the IBS).
     """
-    times = np.atleast_1d(np.asarray(times, dtype=float))
+    times = _validate_times(times)
     if times.size < 2:
         raise TenureValidationError("integrated_brier needs at least 2 time points.")
     durations, events = _eval_arrays(test_cohort)
     times, dropped = _supported_times(times, durations)
     if times.size < 2:
         raise TenureValidationError("fewer than 2 supported time points remain for the IBS.")
-    estimate = _conditional_survival_matrix(model, test_cohort, times)
+    estimate, beyond = _conditional_survival_matrix(model, test_cohort, times)
+    if beyond:
+        warnings.warn(_MODEL_SUPPORT_WARNING, UserWarning, stacklevel=2)
     scores = _ipcw_brier_scores(durations, events, estimate, times)
     span = float(times[-1] - times[0])
     ibs = float(np.sum(np.diff(times) * (scores[:-1] + scores[1:]) / 2.0) / span)
@@ -290,7 +330,7 @@ def integrated_brier(model, test_cohort, times) -> ValidationResult:
     metadata = {
         "metric": "ibs",
         "estimate": ibs,
-        **_brier_metadata(model, test_cohort, times, dropped),
+        **_brier_metadata(model, test_cohort, times, dropped or beyond),
     }
     table = pd.DataFrame(
         [{"metric": "ibs", "estimate": ibs, "t_min": float(times[0]), "t_max": float(times[-1])}]
