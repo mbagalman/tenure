@@ -36,7 +36,13 @@ from tenure.outputs import (
 )
 from tenure.plotting import plot_cumulative_hazard, plot_log_log_survival, plot_survival
 from tenure.study_design import StudyDesign
-from tenure.validation import TestCohort, ValidationResult, random_split, temporal_holdout
+from tenure.validation import (
+    TestCohort,
+    ValidationResult,
+    concordance,
+    random_split,
+    temporal_holdout,
+)
 from tenure.workflow import RetentionResult, RetentionStudy
 
 __version__ = "0.3.1"
@@ -76,6 +82,7 @@ __all__ = [
     "landmark",
     "temporal_holdout",
     "random_split",
+    "concordance",
     "TestCohort",
     "ValidationResult",
     "__version__",
