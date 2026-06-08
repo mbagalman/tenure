@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from tenure._frame import ENTRY, EVENT, EXIT, ID, ORIGIN, unit_factor
+from tenure._frame import ENTRY, EVENT, EXIT, ID, ORIGIN, ensure_estimable, unit_factor
 from tenure.exceptions import TenureValidationError
 from tenure.study_design import StudyDesign
 from tenure.validation.result import VAL001_RANDOM_SPLIT
@@ -60,10 +60,11 @@ def _to_date(origin, tenure, factor):
 def temporal_holdout(design, cutoff):
     """Split ``design`` at a calendar ``cutoff`` into ``(train_design, TestCohort)`` (DV4-2/3).
 
-    Train is the design with everything censored at the cutoff (events strictly before the cutoff
+    Train is the design with everything censored at the cutoff (events on or before the cutoff
     are preserved). Test is the at-risk-at-cutoff cohort with post-cutoff outcomes. Subjects whose
     observation begins at or after the cutoff are in neither (not at risk at the cutoff).
     """
+    ensure_estimable(design)
     cutoff_ts = pd.Timestamp(cutoff)
     table = design.canonical
     time_unit = design.time_unit

@@ -135,3 +135,59 @@ def test_validation_result_carries_contract():
 def test_cutoff_after_everyone_raises():
     with pytest.raises(tenure.TenureValidationError, match="at risk"):
         tenure.temporal_holdout(_events_design(), "2030-01-01")
+
+
+def test_temporal_holdout_blocks_on_unaudited_unmapped_design():
+    # Repro for [P1]: an unaudited design with unmapped rows must raise TenureValidationError.
+    df = pd.DataFrame(
+        {
+            "cid": [1, 2],
+            "signup": pd.to_datetime(["2024-01-01", "2024-01-01"]),
+            "exit": pd.to_datetime(["2024-06-01", "2024-07-01"]),
+            "status": ["churn", "upgraded"],
+        }
+    )
+    status_map = {"churn": "event"}  # "upgraded" is unmapped
+    design = StudyDesign.from_status(
+        df,
+        id_col="cid",
+        origin_col="signup",
+        exit_col="exit",
+        status_col="status",
+        status_map=status_map,
+        active_as_of="2025-01-01",
+    )
+    assert design.n_unmapped == 1
+    # Bypassing ensure_estimable() by splitting should be blocked
+    with pytest.raises(tenure.TenureValidationError, match="status_map"):
+        tenure.temporal_holdout(design, CUTOFF)
+
+
+def test_temporal_holdout_cutoff_boundary_is_inclusive():
+    # Repro for [P2]: verify that an event exactly on the cutoff date
+    # is preserved in train and excluded from test.
+    df = pd.DataFrame(
+        {
+            "cid": ["F", "G"],
+            "signup": pd.to_datetime(["2024-01-01", "2024-01-01"]),
+            "churn": [pd.Timestamp(CUTOFF), pd.Timestamp(CUTOFF) + pd.Timedelta(days=1)],
+        }
+    )
+    design = StudyDesign.from_event_dates(
+        df,
+        id_col="cid",
+        origin_col="signup",
+        churn_date_col="churn",
+        active_as_of=ACTIVE_AS_OF,
+    )
+    train, test = tenure.temporal_holdout(design, CUTOFF)
+
+    # F exits exactly at cutoff -> event preserved in train, excluded from test
+    assert "F" in train.derive()["id"].tolist()
+    assert train.derive().set_index("id").loc["F", "event"] == 1
+    assert "F" not in test.ids
+
+    # G exits after cutoff -> censored in train, included in test
+    assert "G" in train.derive()["id"].tolist()
+    assert train.derive().set_index("id").loc["G", "event"] == 0
+    assert "G" in test.ids
