@@ -72,6 +72,8 @@ def test_concordance_matches_lifelines_oracle_for_cox():
     assert result.metadata["metric"] == "c_index"
     assert result.metadata["model_type"] == "CoxPH"
     assert result.metadata["n_test"] == test.n
+    assert result.metadata["censoring_method"] == "right_censored_harrell"
+    assert result.metadata["n_train_subjects"] >= 1
 
 
 def test_cox_discriminates_above_chance():
@@ -170,3 +172,26 @@ def test_risk_length_mismatch_raises():
     cohort = _cohort([1, 2, 3], [1, 1, 1])
     with pytest.raises(TenureValidationError, match="length"):
         tenure.concordance(np.array([1.0, 2.0]), cohort)
+
+
+def test_all_censored_cohort_raises_clear_error():
+    # No post-cutoff events -> no admissible pairs. Surface a library error, not ZeroDivisionError.
+    cohort = _cohort([10, 20, 30], [0, 0, 0])
+    with pytest.raises(TenureValidationError, match="admissible"):
+        tenure.concordance(np.array([1.0, 2.0, 3.0]), cohort)
+
+
+def test_non_finite_risk_raises_clear_error():
+    cohort = _cohort([10, 20, 30], [1, 1, 1])
+    with pytest.raises(TenureValidationError, match="finite"):
+        tenure.concordance(np.array([1.0, np.nan, 3.0]), cohort)
+
+
+def test_interval_train_reports_rows_and_subjects_distinctly():
+    # n_train_rows counts intervals; n_train_subjects counts customers (P3 metadata clarity).
+    design = _scored_intervals()
+    train, test = tenure.temporal_holdout(design, "2022-06-01")
+    tvc = tenure.TimeVaryingCox().fit(train)
+    md = tenure.concordance(tvc, test).metadata
+    assert md["n_train_rows"] >= md["n_train_subjects"]
+    assert md["n_train_subjects"] == train.derive()["id"].nunique()

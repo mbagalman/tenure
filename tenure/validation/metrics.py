@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from lifelines.utils import concordance_index
 
+from tenure._frame import ID
 from tenure.exceptions import TenureValidationError
 from tenure.outputs._common import as_survival
 from tenure.validation.result import ValidationResult
@@ -69,19 +70,37 @@ def concordance(model, test_cohort, *, horizon: float | None = None) -> Validati
         raise TenureValidationError(
             f"risk length ({len(risk)}) != test cohort size ({len(durations)})."
         )
+    if not np.isfinite(risk).all():
+        raise TenureValidationError(
+            "risk scores must be finite (got NaN/inf); a covariate value as of the cutoff may be "
+            "missing, or the model failed to converge."
+        )
 
     # lifelines scores concordance as higher-predicted => longer survival, so feed -risk.
-    estimate = float(concordance_index(durations, -risk, events))
+    try:
+        estimate = float(concordance_index(durations, -risk, events))
+    except ZeroDivisionError as exc:
+        raise TenureValidationError(
+            "C-index is undefined: the test cohort has no admissible (comparable) event pairs -- "
+            "e.g. it is all-censored after the cutoff. Choose an earlier cutoff or a cohort that "
+            "has post-cutoff churn."
+        ) from exc
 
     train_design = getattr(model, "design", None)
+    n_train_rows = int(train_design.n) if train_design is not None else None
+    n_train_subjects = (
+        int(train_design.canonical[ID].nunique()) if train_design is not None else None
+    )
     metadata = {
         "metric": "c_index",
         "estimate": estimate,
         "horizon": horizon,
         "prediction_time": test_cohort.prediction_time,
-        "censoring_method": "none",
+        # Harrell's C handles right-censoring via admissible (comparable) pairs -- not ignored.
+        "censoring_method": "right_censored_harrell",
         "model_type": type(model).__name__,
-        "n_train": int(train_design.n) if train_design is not None else None,
+        "n_train_rows": n_train_rows,  # canonical rows (intervals for time-varying designs)
+        "n_train_subjects": n_train_subjects,  # distinct customers
         "n_test": int(test_cohort.n),
         "warnings": [],
     }
