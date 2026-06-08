@@ -39,7 +39,9 @@ from tenure.study_design import StudyDesign
 from tenure.validation import (
     TestCohort,
     ValidationResult,
+    brier,
     concordance,
+    integrated_brier,
     random_split,
     temporal_holdout,
 )
@@ -83,6 +85,8 @@ __all__ = [
     "temporal_holdout",
     "random_split",
     "concordance",
+    "brier",
+    "integrated_brier",
     "TestCohort",
     "ValidationResult",
     "__version__",
