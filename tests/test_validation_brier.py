@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -157,12 +159,16 @@ def test_brier_and_ibs_end_to_end_cox_beats_overall_km():
     km = tenure.KaplanMeier().fit(train)
     times = [30, 60, 90, 120]
 
-    cox_brier = tenure.brier(cox, test, times)
+    # This 4-month horizon extrapolates materially for the oldest subjects (a real VAL002), but the
+    # subject of this test is the IBS values, so silence that expected warning here.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        cox_brier = tenure.brier(cox, test, times)
+        cox_ibs = tenure.integrated_brier(cox, test, times).estimate
+        km_ibs = tenure.integrated_brier(km, test, times).estimate
+
     assert list(cox_brier.table.columns) == ["time", "brier"]
     assert cox_brier.table["brier"].between(0.0, 0.3).all()
-
-    cox_ibs = tenure.integrated_brier(cox, test, times).estimate
-    km_ibs = tenure.integrated_brier(km, test, times).estimate
     assert 0.0 < cox_ibs < 0.25
     assert cox_ibs < km_ibs  # the informative covariate improves over the cohort curve
 
@@ -212,12 +218,27 @@ def test_integrated_brier_rejects_unsorted_or_duplicate_times():
         tenure.integrated_brier(cox, test, [30, 30, 60])
 
 
-def test_brier_warns_val002_beyond_model_support():
-    # Times within the test follow-up but, for the longest-tenure subjects, beyond the fitted
-    # model's tenure support after conditioning (eval_start + t) -> flat extrapolation -> VAL002.
+def test_normal_call_records_extrapolation_without_warning():
+    # The reviewer's point: a short-horizon call extrapolates only for a few of the oldest subjects.
+    # That is recorded in metadata but must NOT warn -- a warning on the default path is cry-wolf.
+    design = _scored_design()
+    train, test = tenure.temporal_holdout(design, "2022-10-01")
+    cox = tenure.CoxPH().fit(train)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = tenure.brier(cox, test, [30])
+    assert not any("VAL002" in str(w.message) for w in caught)
+    assert result.metadata["n_extrapolated"] > 0  # still surfaced for inspection...
+    assert 0.0 < result.metadata["pct_extrapolated"] < 0.20  # ...but below the warning threshold
+    assert result.metadata["warnings"] == []
+
+
+def test_material_extrapolation_warns_val002():
+    # A far horizon extrapolates for nearly every subject -> a material support problem -> VAL002.
     design = _scored_design()
     train, test = tenure.temporal_holdout(design, "2022-10-01")
     cox = tenure.CoxPH().fit(train)
     with pytest.warns(UserWarning, match="VAL002"):
-        result = tenure.brier(cox, test, [30, 60])
-    assert "VAL002_HORIZON_SUPPORT" in result.metadata["warnings"]
+        result = tenure.brier(cox, test, [200])
+    assert result.metadata["pct_extrapolated"] > 0.5
+    assert result.metadata["warnings"] == ["VAL002_HORIZON_SUPPORT"]

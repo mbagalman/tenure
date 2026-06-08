@@ -141,28 +141,29 @@ def _step(col: np.ndarray, tindex: np.ndarray, q: float) -> float:
     return float(col[idx]) if idx >= 0 else 1.0
 
 
-def _condition_columns(S, tindex, starts, times) -> tuple[np.ndarray, bool]:
+def _condition_columns(S, tindex, starts, times) -> tuple[np.ndarray, int]:
     """Per-subject conditional survival S(start_i + t)/S(start_i) on the eval clock.
 
-    Also reports ``beyond_support`` = whether any query ``start_i + t`` exceeded the fitted curve's
-    last time, where the step lookup holds the last survival value flat (extrapolation, VAL002).
+    Also returns ``n_extrapolated`` = the number of (subject, time) cells whose query
+    ``start_i + t`` exceeded the fitted curve's last time, where the step lookup holds the last
+    survival value flat (extrapolation). The caller turns this into a fraction for VAL002.
     """
     n, m = S.shape[1], len(times)
     max_support = float(tindex[-1]) if len(tindex) else 0.0
     est = np.empty((n, m))
-    beyond_support = False
+    n_extrapolated = 0
     for i in range(n):
         col = S[:, i]
         s_start = _step(col, tindex, starts[i])
         for j in range(m):
             q = starts[i] + times[j]
             if q > max_support:
-                beyond_support = True
+                n_extrapolated += 1
             est[i, j] = (_step(col, tindex, q) / s_start) if s_start > 0 else 0.0
-    return np.clip(est, 0.0, 1.0), beyond_support
+    return np.clip(est, 0.0, 1.0), n_extrapolated
 
 
-def _conditional_survival_matrix(model, test_cohort, times) -> tuple[np.ndarray, bool]:
+def _conditional_survival_matrix(model, test_cohort, times) -> tuple[np.ndarray, int]:
     """(n_test, n_times) predicted survival on the eval clock, dispatched by model type (A3)."""
     starts = test_cohort.table["eval_start"].to_numpy(dtype=float)
     fitter = getattr(model, "fitter", None)
@@ -197,10 +198,19 @@ def _conditional_survival_matrix(model, test_cohort, times) -> tuple[np.ndarray,
     )
 
 
-_MODEL_SUPPORT_WARNING = (
-    f"{VAL002_HORIZON_SUPPORT}: some predictions fall beyond the fitted model's tenure support "
-    "(eval_start + time); survival is held flat past the last fitted time."
-)
+# Out-of-time validation of a tenure-clock model ALWAYS extrapolates a little (the oldest active
+# subject sits near the model's max tenure at the cutoff), so warning on any extrapolation cries
+# wolf. We always record n_extrapolated / pct_extrapolated in metadata, but only WARN when a
+# material fraction of scored cells extrapolate.
+_EXTRAPOLATION_WARN_FRACTION = 0.20
+
+
+def _model_support_warning(pct: float) -> str:
+    return (
+        f"{VAL002_HORIZON_SUPPORT}: {pct:.0%} of scored cells fall beyond the fitted model's "
+        "tenure support (eval_start + time); survival is held flat there, so the score is partly "
+        "extrapolated. Use an earlier prediction time, shorter eval times, or more training data."
+    )
 
 
 def _validate_times(times) -> np.ndarray:
@@ -272,8 +282,9 @@ def _eval_arrays(test_cohort):
     )
 
 
-def _brier_metadata(model, test_cohort, times, support_warning) -> dict:
+def _brier_metadata(model, test_cohort, times, *, n_extrapolated, support_warning) -> dict:
     train_design = getattr(model, "design", None)
+    n_cells = int(test_cohort.n) * len(times)
     return {
         "prediction_time": test_cohort.prediction_time,
         "censoring_method": "ipcw",
@@ -283,6 +294,8 @@ def _brier_metadata(model, test_cohort, times, support_warning) -> dict:
             int(train_design.canonical[ID].nunique()) if train_design is not None else None
         ),
         "n_test": int(test_cohort.n),
+        "n_extrapolated": int(n_extrapolated),  # scored cells held flat beyond model support
+        "pct_extrapolated": (n_extrapolated / n_cells) if n_cells else 0.0,
         "warnings": [VAL002_HORIZON_SUPPORT] if support_warning else [],
     }
 
@@ -292,17 +305,26 @@ def brier(model, test_cohort, times) -> ValidationResult:
 
     Lower is better (0 = perfect). Predictions are conditional survival on the eval clock; censoring
     is handled by inverse-probability-of-censoring weighting. ``times`` must be finite, > 0, and
-    strictly increasing. Times beyond the cohort's follow-up -- or beyond the fitted model's tenure
-    support -- get a VAL002 warning. Returns a ``ValidationResult`` (``.table`` = [time, brier]).
+    strictly increasing; times beyond the cohort's follow-up are dropped (VAL002). Extrapolation
+    beyond the fitted model's tenure support is always recorded in the metadata
+    (``n_extrapolated`` / ``pct_extrapolated``); VAL002 is *warned* only when a material fraction
+    extrapolates. Returns a ``ValidationResult`` (``.table`` = [time, brier]).
     """
     times = _validate_times(times)
     durations, events = _eval_arrays(test_cohort)
     times, dropped = _supported_times(times, durations)
-    estimate, beyond = _conditional_survival_matrix(model, test_cohort, times)
-    if beyond:
-        warnings.warn(_MODEL_SUPPORT_WARNING, UserWarning, stacklevel=2)
+    estimate, n_extrap = _conditional_survival_matrix(model, test_cohort, times)
+    pct_extrap = n_extrap / estimate.size if estimate.size else 0.0
+    material = pct_extrap >= _EXTRAPOLATION_WARN_FRACTION
+    if material:
+        warnings.warn(_model_support_warning(pct_extrap), UserWarning, stacklevel=2)
     scores = _ipcw_brier_scores(durations, events, estimate, times)
-    metadata = {"metric": "brier", **_brier_metadata(model, test_cohort, times, dropped or beyond)}
+    metadata = {
+        "metric": "brier",
+        **_brier_metadata(
+            model, test_cohort, times, n_extrapolated=n_extrap, support_warning=dropped or material
+        ),
+    }
     return ValidationResult(table=pd.DataFrame({"time": times, "brier": scores}), metadata=metadata)
 
 
@@ -320,9 +342,11 @@ def integrated_brier(model, test_cohort, times) -> ValidationResult:
     times, dropped = _supported_times(times, durations)
     if times.size < 2:
         raise TenureValidationError("fewer than 2 supported time points remain for the IBS.")
-    estimate, beyond = _conditional_survival_matrix(model, test_cohort, times)
-    if beyond:
-        warnings.warn(_MODEL_SUPPORT_WARNING, UserWarning, stacklevel=2)
+    estimate, n_extrap = _conditional_survival_matrix(model, test_cohort, times)
+    pct_extrap = n_extrap / estimate.size if estimate.size else 0.0
+    material = pct_extrap >= _EXTRAPOLATION_WARN_FRACTION
+    if material:
+        warnings.warn(_model_support_warning(pct_extrap), UserWarning, stacklevel=2)
     scores = _ipcw_brier_scores(durations, events, estimate, times)
     span = float(times[-1] - times[0])
     ibs = float(np.sum(np.diff(times) * (scores[:-1] + scores[1:]) / 2.0) / span)
@@ -330,7 +354,9 @@ def integrated_brier(model, test_cohort, times) -> ValidationResult:
     metadata = {
         "metric": "ibs",
         "estimate": ibs,
-        **_brier_metadata(model, test_cohort, times, dropped or beyond),
+        **_brier_metadata(
+            model, test_cohort, times, n_extrapolated=n_extrap, support_warning=dropped or material
+        ),
     }
     table = pd.DataFrame(
         [{"metric": "ibs", "estimate": ibs, "t_min": float(times[0]), "t_max": float(times[-1])}]
