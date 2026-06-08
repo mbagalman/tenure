@@ -1,15 +1,24 @@
-"""Discrimination metrics for the validation layer (v0.4 Slice 2).
+"""Validation metrics: concordance (C-index) and the time-dependent Brier score / IBS.
 
-``concordance`` wraps lifelines' ``concordance_index`` (DV4-6, wrap-don't-reimplement) and evaluates
-a model's per-subject risk against a ``TestCohort``'s post-cutoff outcomes (the eval clock). The
+``concordance`` wraps lifelines' ``concordance_index`` (wrap-don't-reimplement) and evaluates a
+model's per-subject risk against a ``TestCohort``'s post-cutoff outcomes (the eval clock). The
 per-subject risk is obtained through a single dispatch (``_subject_risk``) so the metric stays
-model-agnostic (A3):
+model-agnostic:
 
 - Cox-family (CoxPH / TimeVaryingCox): the partial hazard ``exp(beta^T x)`` on each subject's
   covariates AS OF the cutoff -- a horizon-free, proportional-hazards risk score.
 - A ``SurvivalFunction`` / KaplanMeier: ``1 - S(horizon)``. Overall KM is constant across subjects,
-  so its C-index is ~0.5 by construction (it predicts a cohort curve, not individual risk -- DV4-5).
+  so its C-index is ~0.5 by construction (it predicts a cohort curve, not individual risk).
 - A raw per-subject risk array (advanced / testing).
+
+WHY the Brier score / IBS below are hand-rolled rather than wrapped from ``scikit-survival`` (the
+usual reference for IPCW Brier/IBS): scikit-survival does not install on this project's environment
+(Python 3.14) -- its transitive dependency ``ecos`` ships no cp314 wheel and the source build needs
+a C/C++ toolchain. We also could not run it locally to use as a test oracle. So, to keep the core
+dependency-light (numpy + lifelines, no compiled extras) and testable everywhere, the IPCW Brier
+score and IBS are implemented directly here and validated against hand-computed references and known
+properties (no-censoring reduces to the plain Brier; a perfect model scores 0; a constant 0.5
+predictor scores 0.25). Revisit wrapping scikit-survival once it provides Python 3.14 wheels.
 """
 
 from __future__ import annotations
@@ -114,7 +123,7 @@ def concordance(model, test_cohort, *, horizon: float | None = None) -> Validati
     return ValidationResult(table=result_table, metadata=metadata)
 
 
-# --- Time-dependent Brier score + IBS (IPCW, hand-rolled per DV4-4) ----------------------------
+# --- Time-dependent Brier score + IBS (IPCW, hand-rolled -- see the module docstring for why) ---
 #
 # The IPCW Brier score (Graf et al. 1999) weights each test subject by the inverse probability of
 # remaining uncensored, using a Kaplan-Meier estimate of the CENSORING distribution G. With no
