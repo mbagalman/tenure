@@ -92,6 +92,32 @@ Weibull `shape` parameter reads the hazard directly: `> 1` means churn risk **ri
     parametric fit when you deliberately want to project; use Kaplan-Meier with truncate-and-relabel
     when you want to report only what the data supports.
 
+## Best of both: hybrid (spliced) curves
+
+A pure parametric curve replaces your data *everywhere* -- even inside the window where the
+Kaplan-Meier estimate is the honest choice. [`hybrid_survival`](../reference/estimators.md) splices
+the two: **empirical up to each group's supported horizon, the model's conditional tail beyond**,
+rescaled so the segments meet exactly (the model contributes shape, the data contributes level):
+
+```python
+km = tenure.KaplanMeier().fit(study, by="plan")
+para = tenure.ParametricSurvival("weibull").fit(study, by="plan")
+hyb = tenure.hybrid_survival(km, para)
+
+print(tenure.rmst(hyb, horizon=1095))       # empirical area + model tail, truncated=False
+tenure.plot_survival(hyb)                    # dotted line marks where data ends, model begins
+```
+
+Every curve records its **splice boundary** and both source curves, so nobody downstream can
+mistake projection for evidence: `plot_survival` draws a dotted line at each boundary with a note,
+and confidence intervals exist only on the empirical segment (the model tail is a point estimate).
+Inside the data window the hybrid *is* the Kaplan-Meier curve, CI band and all.
+
+One honesty guarantee worth knowing: the tail model's own support still applies. Splicing a
+step-curve tail (e.g. a Cox profile curve, whose baseline ends with the training data) does not
+turn its flat tail into a projection -- the hybrid stays truncated where that model's support
+ends. Use a parametric tail when you want true extrapolation.
+
 ## Survival-weighted LTV
 
 [`survival_weighted_ltv`](../reference/outputs.md) weights each period's contribution margin by the

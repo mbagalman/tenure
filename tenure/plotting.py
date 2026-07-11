@@ -11,6 +11,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import numpy as np
 
+from tenure.estimators.hybrid import HybridGroupCurve
 from tenure.estimators.nelson_aalen import CumulativeHazardFunction
 from tenure.estimators.survival import SurvivalFunction
 
@@ -62,6 +63,7 @@ def plot_survival(
         table_ax = None
         fig = main_ax.figure
 
+    any_hybrid = False
     for group in groups:
         curve = survival.curve(group)
         (line,) = main_ax.step(curve.times, curve.survival, where="post", label=group)
@@ -74,6 +76,21 @@ def plot_survival(
                 alpha=0.15,
                 color=line.get_color(),
             )
+        if isinstance(curve, HybridGroupCurve):  # mark where data ends and the model tail begins
+            any_hybrid = True
+            main_ax.axvline(
+                curve.boundary, color=line.get_color(), linestyle=":", linewidth=1, alpha=0.6
+            )
+    if any_hybrid:
+        fig.text(
+            0.99,
+            0.01,
+            "Dotted line: data ends, model tail begins.",
+            fontsize=7,
+            color="dimgray",
+            ha="right",
+            va="bottom",
+        )
 
     main_ax.set_ylim(0.0, 1.02)
     main_ax.set_ylabel("Survival probability")

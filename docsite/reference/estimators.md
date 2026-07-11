@@ -25,6 +25,12 @@ Kaplan-Meier, Cox, and time-varying Cox are interchangeable downstream.
 
 ::: tenure.estimators.parametric.ParametricGroupCurve
 
+## Hybrid (spliced) curves
+
+::: tenure.estimators.hybrid.hybrid_survival
+
+::: tenure.estimators.hybrid.HybridGroupCurve
+
 ## Cox proportional hazards
 
 ::: tenure.estimators.cox.CoxPH

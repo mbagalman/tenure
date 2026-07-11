@@ -14,12 +14,14 @@ from tenure.estimators import (
     CoxDiagnosticReport,
     CoxPH,
     CumulativeHazardFunction,
+    HybridGroupCurve,
     KaplanMeier,
     LogRankReport,
     NelsonAalen,
     ParametricSurvival,
     SurvivalFunction,
     TimeVaryingCox,
+    hybrid_survival,
     logrank_test,
 )
 from tenure.exceptions import (
@@ -68,6 +70,8 @@ __all__ = [
     "CoxDiagnosticReport",
     "TimeVaryingCox",
     "ParametricSurvival",
+    "hybrid_survival",
+    "HybridGroupCurve",
     "SurvivalFunction",
     "CumulativeHazardFunction",
     "logrank_test",

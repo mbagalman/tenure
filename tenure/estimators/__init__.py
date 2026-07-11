@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tenure.estimators.cox import CoxDiagnosticReport, CoxPH
+from tenure.estimators.hybrid import HybridGroupCurve, hybrid_survival
 from tenure.estimators.kaplan_meier import KaplanMeier
 from tenure.estimators.logrank import LogRankReport, logrank_test
 from tenure.estimators.nelson_aalen import CumulativeHazardFunction, NelsonAalen
@@ -18,6 +19,8 @@ __all__ = [
     "TimeVaryingCox",
     "ParametricSurvival",
     "ParametricGroupCurve",
+    "hybrid_survival",
+    "HybridGroupCurve",
     "SurvivalFunction",
     "CumulativeHazardFunction",
     "logrank_test",

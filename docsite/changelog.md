@@ -11,6 +11,13 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ### Added
 
+- `hybrid_survival(km, model)` -- hybrid (spliced) survival curves: empirical Kaplan-Meier up to
+  each group's supported horizon, the model's conditional tail beyond, rescaled to meet exactly at
+  the splice boundary. Long-horizon RMST/LTV use every observed event AND a principled tail. Each
+  `HybridGroupCurve` records its boundary and source curves; `plot_survival` marks the boundary
+  with a dotted line and a "data ends, model tail begins" note; CIs exist only on the empirical
+  segment. A step-curve tail cannot launder a flat tail into extrapolation -- the hybrid stays
+  truncated where the tail model's own support ends.
 - `CoxPH(strata=[...])` -- stratified Cox, the standard remedy when
   `proportional_hazards_test` flags a categorical covariate: refit the same design with the
   offender stratified (its own baseline hazard per level, no coefficient, no PH assumption).
