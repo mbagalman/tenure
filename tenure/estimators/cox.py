@@ -51,15 +51,59 @@ class CoxDiagnosticReport:
 
 
 class CoxPH:
-    """Cox PH estimator. Fit a design with covariates, then ``predict_survival(profiles)``."""
+    """Cox PH estimator. Fit a design with covariates, then ``predict_survival(profiles)``.
 
-    def __init__(self, alpha: float = 0.05, penalizer: float = 0.0) -> None:
+    ``strata`` names categorical covariates to stratify on instead of estimating a coefficient:
+    each stratum gets its own baseline hazard while the remaining covariates share one set of
+    coefficients. This is the standard remedy when ``proportional_hazards_test`` flags a
+    covariate -- refit the SAME design with ``CoxPH(strata=["plan"])`` and the offending
+    covariate leaves the PH assumption (and the test) entirely. Strata must be a subset of the
+    design's categorical ``covariate_cols``; at least one covariate must remain unstratified.
+    """
+
+    def __init__(self, alpha: float = 0.05, penalizer: float = 0.0, strata=None) -> None:
         self.alpha = alpha
         self.penalizer = penalizer
+        self.strata = [strata] if isinstance(strata, str) else list(strata or [])
         self._fitter: CoxPHFitter | None = None
         self._design = None
         self._support: tuple | None = None
         self._training_frame: pd.DataFrame | None = None
+
+    def _validate_strata(self, design) -> None:
+        mappings = design.covariate_mappings
+        for col in self.strata:
+            if col not in mappings:
+                raise TenureValidationError(
+                    f"Stratum {col!r} is not a covariate_col on the design (got "
+                    f"{list(mappings)}). Strata are drawn from covariate_cols so the "
+                    "detect-then-stratify remedy reuses the same StudyDesign."
+                )
+            if mappings[col]["kind"] != "categorical":
+                raise TenureValidationError(
+                    f"Stratum {col!r} is numeric; stratification needs discrete levels. "
+                    "Bin it into a categorical column first if you mean to stratify on it."
+                )
+        if len(self.strata) >= len(mappings):
+            raise TenureValidationError(
+                "All covariates are stratified away; at least one must remain to estimate "
+                "coefficients. Drop a stratum or add a covariate."
+            )
+
+    def _encode_with_strata(self, raw: pd.DataFrame) -> pd.DataFrame:
+        """Encode covariates, replacing each stratum's one-hot columns with its raw labels.
+
+        ``encode_covariates`` runs first on everything so its unknown-level guard still protects
+        strata; the stratum's dummy columns are then swapped for the raw column lifelines'
+        ``strata=`` machinery consumes.
+        """
+        encoded = self._design.encode_covariates(raw)
+        mappings = self._design.covariate_mappings
+        for col in self.strata:
+            dummies = [f"{col}_{level}" for level in mappings[col]["levels"][1:]]
+            encoded = encoded.drop(columns=[d for d in dummies if d in encoded.columns])
+            encoded[col] = raw[col].astype(str).to_numpy()
+        return encoded
 
     def fit(self, design) -> CoxPH:
         ensure_estimable(design)
@@ -68,16 +112,24 @@ class CoxPH:
                 "CoxPH requires covariate_cols on the StudyDesign "
                 "(build it with covariate_cols=[...])."
             )
+        self._design = design
+        if self.strata:
+            self._validate_strata(design)
         table = design.derive()
-        frame = design.encode_covariates(table)
+        frame = self._encode_with_strata(table) if self.strata else design.encode_covariates(table)
         frame[_DURATION] = table[EXIT].to_numpy(dtype=float)
         frame[_EVENT] = table[EVENT].to_numpy(dtype=int)
         frame[_ENTRY] = table[ENTRY].to_numpy(dtype=float)
 
         fitter = CoxPHFitter(alpha=self.alpha, penalizer=self.penalizer)
-        fitter.fit(frame, duration_col=_DURATION, event_col=_EVENT, entry_col=_ENTRY)
+        fitter.fit(
+            frame,
+            duration_col=_DURATION,
+            event_col=_EVENT,
+            entry_col=_ENTRY,
+            strata=self.strata or None,
+        )
         self._fitter = fitter
-        self._design = design
         self._support = self._training_support(table)
         self._training_frame = frame
         return self
@@ -112,20 +164,40 @@ class CoxPH:
         return self._design
 
     def encode_for_prediction(self, design) -> pd.DataFrame:
-        """Encode a design's covariates, aligned to the fitted model's columns (missing -> 0)."""
+        """Encode a design's covariates, aligned to the fitted model's columns (missing -> 0).
+
+        For a stratified model the strata columns ride along as raw labels -- lifelines needs
+        them to pick each row's baseline hazard.
+        """
         self._require_fitted()
-        encoded = design.encode_covariates(design.derive())
-        return encoded.reindex(columns=self._fitter.params_.index, fill_value=0.0)
+        table = design.derive()
+        encoded = design.encode_covariates(table)
+        aligned = encoded.reindex(columns=self._fitter.params_.index, fill_value=0.0)
+        for col in self.strata:
+            aligned[col] = table[col].astype(str).to_numpy()
+        return aligned
 
     def predict_survival(self, profiles) -> SurvivalFunction:
         """Predicted survival per covariate profile (raw labels) as a SurvivalFunction.
 
         ``profiles`` is a DataFrame of raw covariate values (one row per profile). Curves are
         labeled by the frame's index, or by a stringified row when the index is a default range.
+        For a stratified model each profile's curve uses its own stratum's baseline hazard (the
+        support arrays remain the pooled training cohort's, as for the unstratified model).
         """
         self._require_fitted()
         profiles = self._as_frame(profiles)
-        encoded = self._design.encode_covariates(profiles)
+        missing = [c for c in self.strata if c not in profiles.columns]
+        if missing:
+            raise TenureValidationError(
+                f"Stratified model: profiles must include the strata column(s) {missing} so each "
+                "row selects its baseline hazard."
+            )
+        encoded = (
+            self._encode_with_strata(profiles)
+            if self.strata
+            else self._design.encode_covariates(profiles)
+        )
         predicted = self._fitter.predict_survival_function(encoded)
         labels = self._profile_labels(profiles)
         risk_times, n_at_risk, last_event_time = self._support
@@ -186,11 +258,15 @@ class CoxPH:
         Note: lifelines cannot compute Schoenfeld residuals for left-truncated (entry) fits, so the
         test refits without the entry column -- identical when there is no delayed entry, a close
         approximation otherwise (the only way lifelines exposes the test).
+
+        On a stratified model the test covers only the estimated (non-strata) covariates:
+        a stratified covariate has no coefficient and no PH assumption to violate -- which is
+        exactly why stratifying is the remedy when this test flags it.
         """
         self._require_fitted()
         frame = self._training_frame.drop(columns=[_ENTRY])
         fitter = CoxPHFitter(penalizer=self.penalizer)
-        fitter.fit(frame, duration_col=_DURATION, event_col=_EVENT)
+        fitter.fit(frame, duration_col=_DURATION, event_col=_EVENT, strata=self.strata or None)
         result = proportional_hazard_test(fitter, frame, time_transform=time_transform)
         summary = result.summary
         covariates = [str(i[0]) if isinstance(i, tuple) else str(i) for i in summary.index]
@@ -205,13 +281,33 @@ class CoxPH:
         )
         report = CoxDiagnosticReport(table=table, threshold=threshold)
         if warn and not report.ok:
+            raw = sorted({self._raw_covariate(v) for v in report.violations})
+            categorical = [
+                c for c in raw if self._design.covariate_mappings[c]["kind"] == "categorical"
+            ]
+            remedy = (
+                f"refit stratified on the offending categorical covariate "
+                f"(CoxPH(strata={categorical!r})) or move to a time-varying model"
+                if categorical
+                else "move to a time-varying model (or bin and stratify the numeric covariate)"
+            )
             warnings.warn(
                 f"Proportional-hazards assumption may be violated for {report.violations} "
-                f"(Schoenfeld p < {threshold}). Consider a stratified Cox or a time-varying "
-                "model (v0.3).",
+                f"(Schoenfeld p < {threshold}). Remedies: {remedy}.",
                 stacklevel=2,
             )
         return report
+
+    def _raw_covariate(self, encoded_name: str) -> str:
+        """Map an encoded column (e.g. ``plan_premium``) back to its raw covariate (``plan``)."""
+        for col, mapping in self._design.covariate_mappings.items():
+            if encoded_name == col:
+                return col
+            if mapping["kind"] == "categorical" and any(
+                encoded_name == f"{col}_{level}" for level in mapping["levels"][1:]
+            ):
+                return col
+        return encoded_name
 
     @staticmethod
     def _as_frame(profiles) -> pd.DataFrame:

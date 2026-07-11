@@ -71,8 +71,23 @@ km_by_plan = tenure.KaplanMeier().fit(study, by="plan")
 tenure.plot_log_log_survival(km_by_plan)
 ```
 
-If the assumption is violated, options on the roadmap include a stratified Cox; today you can
-stratify your analysis or move to a [time-varying design](time-varying.md).
+## When PH fails: the stratified Cox
+
+If the test flags a categorical covariate, the standard remedy is to **stratify** on it: each
+stratum gets its own baseline hazard (no proportionality assumed between them), while the other
+covariates still share one set of coefficients. Refit the *same* design with one argument:
+
+```python
+strat = tenure.CoxPH(strata=["plan"]).fit(study)
+strat.proportional_hazards_test()        # plan is gone from the test -- nothing left to violate
+curves = strat.predict_survival(strat.profile_grid("plan"))   # per-stratum baselines
+```
+
+The stratified covariate no longer has a coefficient (you give up its hazard ratio -- that is the
+trade), but predictions, [`churn_risk_scores`](../reference/outputs.md), and every business output
+work unchanged, and each profile's curve now uses its own stratum's baseline hazard. For a
+*numeric* violator, bin it into a categorical column first, or move to a
+[time-varying design](time-varying.md).
 
 ## Nelson-Aalen cumulative hazard
 

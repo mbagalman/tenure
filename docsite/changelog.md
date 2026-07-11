@@ -11,6 +11,13 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ### Added
 
+- `CoxPH(strata=[...])` -- stratified Cox, the standard remedy when
+  `proportional_hazards_test` flags a categorical covariate: refit the same design with the
+  offender stratified (its own baseline hazard per level, no coefficient, no PH assumption).
+  The PH-violation warning now names the raw covariate and the exact `strata=` call. Prediction,
+  `profile_grid`, `churn_risk_scores`, and all business outputs work unchanged, with each
+  profile's curve drawn from its own stratum's baseline. Coefficients reference-matched to a bare
+  lifelines stratified fit (with delayed entry).
 - `ParametricSurvival(distribution=...)` -- parametric survival models (`weibull` default,
   `exponential`, `lognormal`, `loglogistic`) wrapping lifelines. Unlike Kaplan-Meier, a fitted
   distribution is defined at every tenure, so `rmst` / `survival_weighted_ltv` / `retention_at`
