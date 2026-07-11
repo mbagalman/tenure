@@ -351,10 +351,10 @@ class StudyDesign:
         id_col: str,
         origin_col: str,
         churn_date_col: str,
-        active_as_of,
-        analysis_start=None,
+        active_as_of: str | pd.Timestamp,
+        analysis_start: str | pd.Timestamp | None = None,
         entry_col: str | None = None,
-        event_observed_from=None,
+        event_observed_from: str | pd.Timestamp | None = None,
         includes_pre_entry_churners: bool | None = None,
         group_cols: list[str] | None = None,
         covariate_cols: list[str] | None = None,
@@ -363,7 +363,48 @@ class StudyDesign:
         attest_origin_correct: bool | None = None,
         attest_invariant_covariates: list[str] | None = None,
     ) -> StudyDesign:
-        """Build a design from origin + churn-date columns (null churn date = active)."""
+        """Build a design from origin + churn-date columns (null churn date = active).
+
+        The event-date schema: one row per subject, churn expressed as a date. A subject with a
+        churn date on or before ``active_as_of`` is an event; a null churn date (or one after the
+        snapshot) is right-censored at ``active_as_of``. This is the constructor to reach for when
+        your data records *when* customers left rather than a status label (see ``from_status``
+        for the label form, ``from_intervals`` for time-varying covariates).
+
+        Args:
+            df: One row per subject. You own any cleaning/dedup upstream of this call.
+            id_col: Column of unique subject (or subscription) ids. Duplicates are governed by
+                ``dedup_policy`` and, left unresolved, block the audit (FR-SD-7).
+            origin_col: Signup/start date column. This is tenure ``t = 0``, kept distinct from
+                calendar time throughout.
+            churn_date_col: Churn/cancel date column. A present-but-unparseable value raises; only
+                true nulls/blank strings are treated as still-active (no silent coercion to active).
+            active_as_of: Snapshot date. Subjects still active are right-censored here.
+            analysis_start: Optional start of the observation window (calendar date). Used by the
+                audit to reason about observation completeness.
+            entry_col: Optional explicit delayed-entry date column, when subjects enter the risk
+                set at a known date after their origin.
+            event_observed_from: Date event recording began (a Window-Cut study, e.g. a billing
+                migration). Older subjects enter with delayed entry at tenure
+                ``event_observed_from - origin``. Supplying this clears the TNR001 left-truncation
+                block; omitting it on a window-cut design is exactly what TNR001 catches.
+            includes_pre_entry_churners: Coarse fallback attestation for TNR001 when you cannot
+                supply ``event_observed_from`` but can vouch that pre-window churners are present
+                (so the cohort is not survivor-biased).
+            group_cols: Columns to stratify curves by (the estimator ``by=`` keys).
+            covariate_cols: Columns exposed to covariate models (e.g. ``CoxPH``).
+            time_unit: Unit for tenure/horizons. Default ``"day"``.
+            dedup_policy: ``"error"`` (default, raises on duplicate ids), ``"keep-first"``
+                (unbiased), or ``"keep-most-recent"`` (warns -- win-back selection bias).
+            attest_origin_correct: Set ``True`` to attest a genuine origin and clear TNR002 when
+                the check cannot otherwise verify it.
+            attest_invariant_covariates: Names of covariates you attest are origin-time-legitimate
+                (e.g. an annual plan that can only exist after month one), clearing TNR004 for them.
+
+        Returns:
+            A :class:`StudyDesign` over the canonical internal table, ready for ``audit`` and then
+            an estimator.
+        """
         group_cols = list(group_cols or [])
         covariate_cols = list(covariate_cols or [])
         required = [id_col, origin_col, churn_date_col, *group_cols, *covariate_cols]
@@ -413,10 +454,10 @@ class StudyDesign:
         exit_col: str,
         status_col: str,
         status_map: dict,
-        active_as_of,
-        analysis_start=None,
+        active_as_of: str | pd.Timestamp,
+        analysis_start: str | pd.Timestamp | None = None,
         entry_col: str | None = None,
-        event_observed_from=None,
+        event_observed_from: str | pd.Timestamp | None = None,
         includes_pre_entry_churners: bool | None = None,
         group_cols: list[str] | None = None,
         covariate_cols: list[str] | None = None,
