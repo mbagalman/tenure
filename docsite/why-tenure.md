@@ -72,7 +72,8 @@ all-pass, zero warnings.
 ## What Tenure is not (yet)
 
 Tenure's beachhead is **contractual subscription businesses** (streaming/SVOD-like), where churn is
-observed directly. It is intentionally focused:
+observed directly. It is intentionally focused (see [Scope](scope.md) for the full boundary and the
+one question that decides whether Tenure fits your problem):
 
 - It does **not** yet do non-contractual / latent-attrition models (BG/NBD, Pareto/NBD) -- those
   are post-v1.0.

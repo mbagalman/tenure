@@ -63,6 +63,7 @@ plugins:
 nav:
   - Home: index.md
   - Why Tenure: why-tenure.md
+  - Scope - when to use it: scope.md
   - Installation: installation.md
   - Tutorials:
       - Quickstart - the LTV gap: tutorials/quickstart.md
@@ -79,3 +80,4 @@ nav:
       - Audit: reference/audit.md
       - Plotting: reference/plotting.md
       - Datasets and demos: reference/datasets.md
+  - Changelog: changelog.md
