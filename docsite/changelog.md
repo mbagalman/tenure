@@ -11,6 +11,13 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ### Added
 
+- `ParametricSurvival(distribution=...)` -- parametric survival models (`weibull` default,
+  `exponential`, `lognormal`, `loglogistic`) wrapping lifelines. Unlike Kaplan-Meier, a fitted
+  distribution is defined at every tenure, so `rmst` / `survival_weighted_ltv` / `retention_at`
+  extrapolate past observed support (`truncated=False`) for principled long-horizon LTV. Presents
+  the same multi-group `SurvivalFunction` interface (A3), honors delayed entry, and exposes fitted
+  parameters via `.params_` (Weibull `shape` reads the hazard trend). Survival functions are
+  evaluated in closed form and reference-matched to lifelines across all four distributions.
 - `logrank_test(design, by=...)` -- the log-rank test for group comparison, with a `LogRankReport`
   (per-group observed/expected table, chi-square statistic, degrees of freedom, p-value,
   `significant(alpha)`). Left-truncation aware: risk sets are built from the delayed-entry times,

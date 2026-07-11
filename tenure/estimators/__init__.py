@@ -6,6 +6,7 @@ from tenure.estimators.cox import CoxDiagnosticReport, CoxPH
 from tenure.estimators.kaplan_meier import KaplanMeier
 from tenure.estimators.logrank import LogRankReport, logrank_test
 from tenure.estimators.nelson_aalen import CumulativeHazardFunction, NelsonAalen
+from tenure.estimators.parametric import ParametricGroupCurve, ParametricSurvival
 from tenure.estimators.survival import SurvivalFunction
 from tenure.estimators.time_varying_cox import TimeVaryingCox
 
@@ -15,6 +16,8 @@ __all__ = [
     "CoxPH",
     "CoxDiagnosticReport",
     "TimeVaryingCox",
+    "ParametricSurvival",
+    "ParametricGroupCurve",
     "SurvivalFunction",
     "CumulativeHazardFunction",
     "logrank_test",

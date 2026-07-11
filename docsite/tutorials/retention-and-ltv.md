@@ -66,6 +66,32 @@ Tenure never silently extrapolates a flat tail. The integral runs only to a per-
 horizon**; if your requested horizon outran support, the result is flagged `truncated=True` and
 `effective_horizon` reports where the integration actually stopped.
 
+## Projecting past your data: parametric survival
+
+Kaplan-Meier truncates because it is non-parametric -- it genuinely knows nothing past the last
+observed event. When you want a *principled* projection beyond your data window (a 3-year LTV from
+one year of history, say), fit a parametric model instead. [`ParametricSurvival`](../reference/estimators.md)
+fits a distribution (`weibull` by default, or `exponential` / `lognormal` / `loglogistic`) and
+presents the **same interface** as Kaplan-Meier, so the business outputs consume it unchanged:
+
+```python
+para = tenure.ParametricSurvival("weibull").fit(study, by="plan")
+print(para.params_)                              # per-group scale + shape
+print(tenure.rmst(para, horizon=1095))           # 3-year RMST -- truncated=False
+print(tenure.survival_weighted_ltv(para, period_margin=12.0, horizon=1095.0, period="month"))
+```
+
+Because a fitted distribution is defined at every tenure, `rmst` and `survival_weighted_ltv` now
+reach the full horizon (`truncated=False`) instead of stopping at the effective horizon. The
+Weibull `shape` parameter reads the hazard directly: `> 1` means churn risk **rises** with tenure,
+`< 1` means it **falls**, and `== 1` is the memoryless exponential.
+
+!!! warning "You are opting into a model"
+    Extrapolation is the whole point here, but it is only as good as the distribution's fit. Beyond
+    each group's `last_event_time` the curve is the model's projection, not evidence. Use a
+    parametric fit when you deliberately want to project; use Kaplan-Meier with truncate-and-relabel
+    when you want to report only what the data supports.
+
 ## Survival-weighted LTV
 
 [`survival_weighted_ltv`](../reference/outputs.md) weights each period's contribution margin by the

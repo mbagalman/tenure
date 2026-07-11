@@ -19,6 +19,12 @@ Kaplan-Meier, Cox, and time-varying Cox are interchangeable downstream.
 
 ::: tenure.estimators.logrank.LogRankReport
 
+## Parametric survival
+
+::: tenure.estimators.parametric.ParametricSurvival
+
+::: tenure.estimators.parametric.ParametricGroupCurve
+
 ## Cox proportional hazards
 
 ::: tenure.estimators.cox.CoxPH
