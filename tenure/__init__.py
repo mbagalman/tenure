@@ -15,9 +15,11 @@ from tenure.estimators import (
     CoxPH,
     CumulativeHazardFunction,
     KaplanMeier,
+    LogRankReport,
     NelsonAalen,
     SurvivalFunction,
     TimeVaryingCox,
+    logrank_test,
 )
 from tenure.exceptions import (
     AuditBlockedError,
@@ -66,6 +68,8 @@ __all__ = [
     "TimeVaryingCox",
     "SurvivalFunction",
     "CumulativeHazardFunction",
+    "logrank_test",
+    "LogRankReport",
     "retention_at",
     "rmst",
     "survival_weighted_ltv",

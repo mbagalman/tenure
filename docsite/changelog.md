@@ -11,6 +11,10 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ### Added
 
+- `logrank_test(design, by=...)` -- the log-rank test for group comparison, with a `LogRankReport`
+  (per-group observed/expected table, chi-square statistic, degrees of freedom, p-value,
+  `significant(alpha)`). Left-truncation aware: risk sets are built from the delayed-entry times,
+  so a window-cut cohort is compared correctly. Reference-matched to lifelines on the no-entry case.
 - Documentation site (MkDocs Material): tutorials, the bias-audit catalog, and autodoc API
   reference. A [scope page](scope.md) draws the contractual vs. non-contractual boundary.
 

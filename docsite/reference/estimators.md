@@ -13,6 +13,12 @@ Kaplan-Meier, Cox, and time-varying Cox are interchangeable downstream.
 
 ::: tenure.estimators.nelson_aalen.CumulativeHazardFunction
 
+## Log-rank test
+
+::: tenure.estimators.logrank.logrank_test
+
+::: tenure.estimators.logrank.LogRankReport
+
 ## Cox proportional hazards
 
 ::: tenure.estimators.cox.CoxPH

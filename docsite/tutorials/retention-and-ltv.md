@@ -35,6 +35,24 @@ The `supported` column is `False` when a horizon exceeds the group's supported w
 retention there is read off the flat Kaplan-Meier tail and should be treated with caution. This is
 the [TNR005](../audit-catalog.md) output-time guard in action.
 
+## Are the groups actually different? The log-rank test
+
+Grouped curves invite the question "do these plans really retain differently, or is the gap just
+noise?" [`logrank_test`](../reference/estimators.md) is the standard answer -- a hypothesis test of
+whether the group survival curves differ:
+
+```python
+result = tenure.logrank_test(study, by="plan")
+print(result.summary)     # chi2, df, p-value, and the plain-language verdict
+print(result.table)       # per group: n, observed events, expected-under-the-null
+```
+
+A small p-value says the curves differ by more than sampling variation; a group whose `observed`
+events fall well below `expected` retained better than the pooled average. The test groups exactly
+as `KaplanMeier.fit(..., by=...)` does and **honors delayed entry** -- unlike a bare
+`lifelines` log-rank, it builds each risk set from the left-truncation-aware entry times, so a
+window-cut cohort is compared correctly rather than biased.
+
 ## Restricted Mean Survival Time (RMST)
 
 RMST is the average time-in-subscription through a horizon -- the area under the survival curve. It
