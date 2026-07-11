@@ -8,9 +8,9 @@ the **study design** right. Tenure makes the statistically correct design the de
 biased designs hard to produce by accident, via a plain-language **study-design audit** that runs
 *before* any number is returned.
 
-!!! note "Status: v0.4 (alpha)"
+!!! note "Status: v0.5 (alpha)"
     The public API is settling; minor changes are still possible before v1.0. The distribution
-    name on PyPI is not yet final.
+    name on PyPI is not yet final. See the [changelog](changelog.md).
 
 ## The 30-second pitch
 
@@ -72,7 +72,11 @@ print(f"true LTV:       ${result['true_ltv']:.2f}")        # $90.96
 | Business outputs (retention %, RMST, LTV $) | [`retention_at`, `rmst`, `survival_weighted_ltv`, `summarize`](reference/outputs.md) |
 | Cox risk modeling + per-customer scoring | [`CoxPH`](reference/estimators.md), [`churn_risk_scores`](reference/outputs.md) |
 | Time-varying covariates (immortal-time *prevented*) | [`TimeVaryingCox`, `landmark`](reference/estimators.md) |
+| Group-difference inference (left-truncation aware) | [`logrank_test`](reference/estimators.md) |
+| Project past the data window (long-horizon LTV) | [`ParametricSurvival`, `hybrid_survival`](reference/estimators.md) |
+| PH-violation remedy | [`CoxPH(strata=[...])`](reference/estimators.md) |
 | Out-of-time validation (C-index, Brier/IBS, calibration) | [`temporal_holdout`, `concordance`, `brier`, `calibration`](reference/validation.md) |
+| Error bars on discrimination (customer-safe folds) | [`cross_validate`, `panel_folds`](reference/validation.md) |
 
 ## License
 

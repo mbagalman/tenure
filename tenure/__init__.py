@@ -61,7 +61,7 @@ from tenure.validation import (
 )
 from tenure.workflow import RetentionResult, RetentionStudy
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "StudyDesign",

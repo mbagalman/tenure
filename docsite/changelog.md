@@ -7,7 +7,13 @@ All notable changes to Tenure are recorded here. The format is based on
 Until v1.0 the API is still settling and minor (0.x) releases may make small breaking changes.
 Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even pre-1.0.
 
-## [Unreleased]
+## [0.5.0] -- 2026-07-11
+
+The adoption release: the deferred P2s pulled forward so choosing Tenure over hand-rolled KM + Cox
+costs nothing in capability. Group-comparison inference, principled projection past the data
+window, the PH-violation remedy, and error bars on validation -- each with the same honesty
+guarantees (delayed-entry correctness, no silent extrapolation, leakage asserted) as the rest of
+the library. Also the first release with this documentation site.
 
 ### Added
 
@@ -154,7 +160,7 @@ with the study-design audit as the hero feature.
 - Packaging: MIT license, pyproject/hatchling, ruff, pytest, GitHub Actions (Linux + Windows),
   Python 3.10+.
 
-[Unreleased]: https://github.com/mbagalman/tenure/compare/v0.4.0...HEAD
+[0.5.0]: https://github.com/mbagalman/tenure/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mbagalman/tenure/releases/tag/v0.4.0
 [0.3.1]: https://github.com/mbagalman/tenure/releases/tag/v0.3.1
 [0.3.0]: https://github.com/mbagalman/tenure/releases/tag/v0.3.0

@@ -8,12 +8,14 @@ Tenure makes the statistically correct design the default and makes biased desig
 to produce by accident, via a plain-language **study-design audit** that runs *before*
 any number is returned.
 
-> **Status: v0.4 (alpha).** v0.1 = the audit + Kaplan-Meier + retention/LTV. v0.2 adds risk
+> **Status: v0.5 (alpha).** v0.1 = the audit + Kaplan-Meier + retention/LTV. v0.2 adds risk
 > modeling (Cox PH, churn-risk scoring, PH diagnostics). v0.3 adds the time-varying data model
 > (interval / counting-process schema, time-varying Cox) that *prevents* immortal-time bias, plus
 > landmarking. v0.4 adds out-of-time validation (temporal holdout, C-index, IPCW Brier/IBS,
-> calibration). The public API is settling; minor changes are still possible. The distribution name
-> on PyPI is not final.
+> calibration). v0.5 adds the group-comparison log-rank test, parametric survival + hybrid
+> (empirical + modeled) curves for principled long-horizon LTV, stratified Cox, and panel-aware
+> cross-validation. The public API is settling; minor changes are still possible. The distribution
+> name on PyPI is not final.
 
 ## Why this vs lifelines?
 
@@ -180,6 +182,41 @@ type, train/test sizes, and any `VAL00x` support warnings) so a validation repor
 provenance. (C-index wraps lifelines; the Brier score / IBS are implemented directly to keep the
 core dependency-light. Brier/IBS and calibration support `CoxPH` and overall survival curves;
 time-varying-Cox accuracy metrics are a later addition.)
+
+## Beyond the data window (v0.5): inference, projection, remedies, error bars
+
+v0.5 rounds out the day-to-day analyst surface -- each piece keeping the same honesty guarantees
+as the rest of the library:
+
+```python
+df = tenure.load_svod_demo(with_left_truncation=False)
+study = tenure.StudyDesign.from_event_dates(
+    df, id_col="customer_id", origin_col="signup_date", churn_date_col="churn_date",
+    active_as_of="2026-05-31", covariate_cols=["plan", "channel"],
+)
+tenure.audit(study)
+
+# Are the group curves actually different, or just noise? Left-truncation-aware log-rank:
+print(tenure.logrank_test(study, by="plan").summary)
+
+# Principled projection past your data: a fitted distribution is defined at every tenure,
+# so 3-year LTV from 1 year of history is a model projection, not a flat-tail readoff.
+para = tenure.ParametricSurvival("weibull").fit(study, by="plan")
+print(tenure.rmst(para, horizon=1095))                  # truncated=False
+
+# Best of both: empirical KM where you have data, the model's conditional tail beyond --
+# spliced continuously, with the data/model boundary recorded and drawn on plots.
+km = tenure.KaplanMeier().fit(study, by="plan")
+hyb = tenure.hybrid_survival(km, para)
+
+# When the PH test flags a covariate, the remedy is one argument on the same design:
+strat = tenure.CoxPH(strata=["plan"]).fit(study)
+
+# Error bars on discrimination: folds never split a customer, and the per-fold C-index
+# honors delayed entry. Complements temporal_holdout (which stays the honest headline).
+res = tenure.cross_validate(lambda: tenure.CoxPH(), study, k=5)
+print(res.metadata["estimate"], "+/-", res.metadata["std"])
+```
 
 ## Development
 
