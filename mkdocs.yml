@@ -1,0 +1,81 @@
+site_name: Tenure
+site_description: Audit-first survival analysis for B2C customer churn.
+site_author: Michael (Paradox Resolution)
+repo_url: https://github.com/mbagalman/tenure
+repo_name: mbagalman/tenure
+copyright: Copyright (c) Paradox Resolution. MIT License.
+
+# Source content lives in docsite/ (docs/ is reserved for internal, unpublished planning docs).
+docs_dir: docsite
+site_dir: site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_source: false
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            heading_level: 2
+
+nav:
+  - Home: index.md
+  - Why Tenure: why-tenure.md
+  - Installation: installation.md
+  - Tutorials:
+      - Quickstart - the LTV gap: tutorials/quickstart.md
+      - Retention and LTV: tutorials/retention-and-ltv.md
+      - Risk modeling with Cox: tutorials/risk-modeling.md
+      - Time-varying covariates: tutorials/time-varying.md
+      - Out-of-time validation: tutorials/validation.md
+  - The bias audit: audit-catalog.md
+  - API reference:
+      - Study design: reference/study-design.md
+      - Estimators: reference/estimators.md
+      - Business outputs: reference/outputs.md
+      - Validation: reference/validation.md
+      - Audit: reference/audit.md
+      - Plotting: reference/plotting.md
+      - Datasets and demos: reference/datasets.md

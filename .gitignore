@@ -45,6 +45,9 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
+# MkDocs build output (source lives in docsite/, tracked)
+/site/
+
 # Type checkers / build backends
 *.so
 

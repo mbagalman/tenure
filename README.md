@@ -84,10 +84,12 @@ Move from "how is the cohort retaining" to "which customers are at risk, and why
 covariates on the study design; Cox plugs into the same outputs as Kaplan-Meier.
 
 ```python
+df = tenure.load_svod_demo(with_left_truncation=False)
 study = tenure.StudyDesign.from_event_dates(
     df, id_col="customer_id", origin_col="signup_date", churn_date_col="churn_date",
-    active_as_of="2026-05-31", covariate_cols=["plan", "tenure_days_at_signup"],
+    active_as_of="2026-05-31", covariate_cols=["plan", "channel"],
 )
+tenure.audit(study)
 cox = tenure.CoxPH().fit(study)
 
 # Survival curves at covariate profiles -> consumed by retention_at / rmst / survival_weighted_ltv:
