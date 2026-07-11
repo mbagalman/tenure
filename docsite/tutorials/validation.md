@@ -44,6 +44,31 @@ test on and raises a clear error.
     Splitting a survival panel at random lets the model see a customer's future when predicting
     their past. For churn, validation must be forward-in-time.
 
+## Error bars: panel-aware cross-validation
+
+One holdout gives one number. [`cross_validate`](../reference/validation.md) gives a mean **and a
+spread**: it folds the study by *customer* -- never splitting one customer's rows across folds --
+fits a fresh model per fold, and scores each held-out fold:
+
+```python
+res = tenure.cross_validate(lambda: tenure.CoxPH(), study, k=5)
+print(res.table)                                       # one C-index per fold
+print(res.metadata["estimate"], res.metadata["std"])   # mean +/- spread
+```
+
+Two correctness points are built in. First, the **panel guarantee**: folds come from
+[`panel_folds`](../reference/validation.md), which partitions customer ids (all of a customer's
+intervals travel together) and asserts disjointness -- and if you build folds by hand,
+[`ensure_panel_safe`](../reference/validation.md) is the [VAL003](../reference/validation.md)
+leakage guard. Second, the per-fold C-index is **delayed-entry aware**: each churn event is
+compared only against customers actually *at risk* at that moment, so a window-cut cohort is
+scored correctly (with no delayed entry it reproduces the standard Harrell C exactly).
+
+!!! note "CV complements the temporal holdout -- it does not replace it"
+    Panel CV is *cross-sectional*: every fold sees the whole calendar range, so it measures how
+    well covariates discriminate risk, with error bars. Only `temporal_holdout` tests whether the
+    model generalizes *forward in time*. Use both: the holdout for the headline, CV for the spread.
+
 ## Discrimination: the concordance index
 
 Do higher-risk customers actually churn sooner? The C-index answers that

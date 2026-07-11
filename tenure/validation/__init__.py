@@ -8,6 +8,7 @@ metrics (C-index, Brier/IBS) and calibration land in later v0.4 slices.
 from __future__ import annotations
 
 from tenure.validation.calibration import calibration
+from tenure.validation.cv import cross_validate, ensure_panel_safe, panel_folds
 from tenure.validation.metrics import brier, concordance, integrated_brier
 from tenure.validation.result import (
     VAL001_RANDOM_SPLIT,
@@ -20,6 +21,9 @@ from tenure.validation.split import TestCohort, random_split, temporal_holdout
 __all__ = [
     "temporal_holdout",
     "random_split",
+    "panel_folds",
+    "cross_validate",
+    "ensure_panel_safe",
     "concordance",
     "brier",
     "integrated_brier",

@@ -11,6 +11,14 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ### Added
 
+- Panel-aware cross-validation (DV4-7, deferred from v0.4): `cross_validate(factory, design, k=5)`
+  fits a fresh Cox-family model per fold and returns a per-fold C-index table with mean and spread;
+  `panel_folds` partitions by customer id (all of a customer's intervals travel together,
+  disjointness asserted); `ensure_panel_safe` is the VAL003 leakage guard for hand-built splits.
+  The per-fold C-index is delayed-entry aware -- events are compared only against customers at
+  risk at that moment -- and reproduces lifelines' `concordance_index` exactly (tie conventions
+  included) when there is no delayed entry. Cross-sectional by design: complements, never
+  replaces, `temporal_holdout`.
 - `hybrid_survival(km, model)` -- hybrid (spliced) survival curves: empirical Kaplan-Meier up to
   each group's supported horizon, the model's conditional tail beyond, rescaled to meet exactly at
   the splice boundary. Long-horizon RMST/LTV use every observed event AND a principled tail. Each

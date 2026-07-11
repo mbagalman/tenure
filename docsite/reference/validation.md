@@ -11,6 +11,14 @@ calibration metrics. See the [validation tutorial](../tutorials/validation.md) f
 
 ::: tenure.validation.split.TestCohort
 
+## Panel-aware cross-validation
+
+::: tenure.validation.cv.cross_validate
+
+::: tenure.validation.cv.panel_folds
+
+::: tenure.validation.cv.ensure_panel_safe
+
 ## Metrics
 
 ::: tenure.validation.metrics.concordance
