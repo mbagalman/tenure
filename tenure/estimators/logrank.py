@@ -71,6 +71,12 @@ def _logrank_statistic(
 
     Risk sets are ``entry < t <= exit`` so the test honors delayed entry. Variance uses the
     hypergeometric (multiple-groups) form with the standard ``(Y - d)/(Y - 1)`` tie correction.
+
+    Complexity: O(unique event times x rows) boolean work. With discrete tenures (whole days)
+    the unique times are bounded and this is fast at any size; with continuous float tenures
+    (every event time unique -- the common case for date-derived tenures) it degrades to
+    O(events x rows), a known bottleneck on very large cohorts (same class as the entry-aware
+    concordance in validation.cv).
     """
     observed = np.zeros(n_groups)
     expected = np.zeros(n_groups)

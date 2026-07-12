@@ -24,6 +24,9 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
   mappings are inherited, keeping every fold's encoded column space identical.
 - The entry-aware concordance documents its O(events x rows) cost (review) -- exact and fine at
   fold sizes, a known bottleneck on very large cohorts.
+- `logrank_test` documents the same cost class (review): O(unique event times x rows), which for
+  continuous date-derived tenures (every event time unique) degrades to O(events x rows) on very
+  large cohorts.
 
 ## [0.5.0] -- 2026-07-11
 
