@@ -41,3 +41,27 @@ def test_perf_benchmark(n):
     elapsed = time.perf_counter() - start
     print(f"\n[perf] fit + LTV on n={n:,}: {elapsed:.2f}s")
     assert out.iloc[0]["ltv"] > 0
+
+
+@pytest.mark.skipif(
+    not os.environ.get("TENURE_PERF"), reason="set TENURE_PERF=1 to run the perf benchmark"
+)
+def test_perf_logrank_large():
+    # v1.0 performance pass: the vectorized log-rank must stay O((n + events) log n). The
+    # pre-vectorization loop took ~66s at n=1e5 with continuous tenures; the searchsorted
+    # form runs in well under a second.
+    import numpy as np
+
+    from tenure.estimators.logrank import _logrank_statistic
+
+    rng = np.random.default_rng(0)
+    n = 100_000
+    duration = rng.exponential(100.0, n) + 0.001  # continuous -> ~all event times unique
+    event = (rng.random(n) < 0.7).astype(int)
+    entry = np.where(rng.random(n) < 0.3, duration * rng.random(n) * 0.5, 0.0)
+    group_index = rng.integers(0, 3, n)
+    start = time.perf_counter()
+    _logrank_statistic(entry, duration, event, group_index, 3)
+    elapsed = time.perf_counter() - start
+    print(f"\n[perf] logrank on n={n:,}: {elapsed:.2f}s")
+    assert elapsed < 5.0  # generous CI headroom; the point is catching a quadratic regression

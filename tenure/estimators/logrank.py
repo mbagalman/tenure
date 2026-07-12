@@ -72,33 +72,49 @@ def _logrank_statistic(
     Risk sets are ``entry < t <= exit`` so the test honors delayed entry. Variance uses the
     hypergeometric (multiple-groups) form with the standard ``(Y - d)/(Y - 1)`` tie correction.
 
-    Complexity: O(unique event times x rows) boolean work. With discrete tenures (whole days)
-    the unique times are bounded and this is fast at any size; with continuous float tenures
-    (every event time unique -- the common case for date-derived tenures) it degrades to
-    O(events x rows), a known bottleneck on very large cohorts (same class as the entry-aware
-    concordance in validation.cv).
+    Vectorized to O((rows + events) log rows) (v1.0 performance pass -- the previous per-event
+    boolean-mask loop was O(events x rows) and took ~a minute at 1e5 rows with continuous
+    tenures): per-group at-risk counts at every event time come from two ``searchsorted`` calls
+    on pre-sorted entry/duration arrays -- ``Y_g(t) = #{entry_g < t} - #{duration_g < t}`` is
+    exactly the ``entry < t <= duration`` risk set -- death counts accumulate with ``np.add.at``,
+    and the covariance sum collapses to einsum. The math is identical; the lifelines
+    reference-match tests (1e-9) pin it.
     """
-    observed = np.zeros(n_groups)
-    expected = np.zeros(n_groups)
-    covariance = np.zeros((n_groups, n_groups))
-
     event_times = np.unique(duration[event == 1])
-    for t in event_times:
-        at_risk = (entry < t) & (duration >= t)  # left-truncation aware
-        died = (duration == t) & (event == 1)
-        # Per-group at-risk (Y) and event (d) counts at t, in one bincount pass per array
-        # (a per-group mask loop here is O(rows x groups) per event time; review fix).
-        y = np.bincount(group_index[at_risk], minlength=n_groups).astype(float)
-        d = np.bincount(group_index[died], minlength=n_groups).astype(float)
-        y_total = y.sum()
-        d_total = d.sum()
-        if y_total <= 0 or d_total <= 0:
-            continue
-        observed += d
-        expected += d_total * y / y_total
-        if y_total > 1:
-            factor = d_total * (y_total - d_total) / (y_total - 1.0)
-            covariance += factor * (np.diag(y) * y_total - np.outer(y, y)) / (y_total * y_total)
+    n_times = len(event_times)
+
+    # Y[t, g] = per-group number at risk at each event time (entry < t and duration >= t).
+    y = np.empty((n_times, n_groups))
+    for g in range(n_groups):
+        in_g = group_index == g
+        entries_g = np.sort(entry[in_g])
+        durations_g = np.sort(duration[in_g])
+        y[:, g] = np.searchsorted(entries_g, event_times, side="left") - np.searchsorted(
+            durations_g, event_times, side="left"
+        )
+
+    # D[t, g] = per-group deaths at each event time.
+    d = np.zeros((n_times, n_groups))
+    ev = event == 1
+    t_idx = np.searchsorted(event_times, duration[ev])
+    np.add.at(d, (t_idx, group_index[ev]), 1.0)
+
+    y_total = y.sum(axis=1)
+    d_total = d.sum(axis=1)
+    valid = (y_total > 0) & (d_total > 0)
+    yv, dv = y[valid], d[valid]
+    ytv, dtv = y_total[valid], d_total[valid]
+
+    observed = dv.sum(axis=0)
+    expected = (dtv[:, None] * yv / ytv[:, None]).sum(axis=0)
+
+    # covariance = sum_t factor_t * (Ytot_t * diag(y_t) - outer(y_t, y_t)) / Ytot_t^2
+    var_rows = ytv > 1
+    w = np.zeros(len(ytv))
+    w[var_rows] = (
+        dtv[var_rows] * (ytv[var_rows] - dtv[var_rows]) / (ytv[var_rows] - 1.0) / ytv[var_rows] ** 2
+    )
+    covariance = np.diag((w * ytv * yv.T).sum(axis=1)) - np.einsum("t,ti,tj->ij", w, yv, yv)
 
     # Drop one group for identifiability, then form the chi-square quadratic.
     z = (observed - expected)[:-1]
@@ -108,8 +124,11 @@ def _logrank_statistic(
     # a group never at risk at any event time (e.g. all censored before the first event)
     # contributes zero variance, the rank drops, and testing the lower-rank statistic against
     # chi2_{K-1} inflates the p-value (overly conservative). pinv already handles the quadratic;
-    # the reference distribution must match its rank.
-    df = int(np.linalg.matrix_rank(v))
+    # the reference distribution must match its rank. The tolerance is scaled to the matrix
+    # magnitude: rank deficiency here comes from analytic cancellations (row sums are zero over
+    # the at-risk groups) that floating-point accumulation leaves as ~1e-10 residuals, far above
+    # matrix_rank's machine-epsilon default but far below any genuine variance dimension.
+    df = int(np.linalg.matrix_rank(v, tol=1e-8 * max(1.0, float(np.abs(v).max()))))
     if df == 0:
         raise TenureValidationError(
             "log-rank is undefined: no two groups are ever at risk together at an event time "

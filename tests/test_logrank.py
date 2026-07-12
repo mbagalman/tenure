@@ -251,3 +251,40 @@ def test_summary_string():
     report = tenure.logrank_test(design, by="tier")
     assert "log-rank" in report.summary
     assert "differ" in report.summary
+
+
+def test_heavy_ties_match_lifelines():
+    # Whole-day durations force many tied event times, exercising the multi-death accumulation
+    # and the (Y - d)/(Y - 1) tie-correction path of the vectorized statistic.
+    rng = np.random.default_rng(11)
+    n = 500
+    signup = pd.Timestamp("2024-01-01")
+    tier = rng.choice(["basic", "premium"], size=n)
+    lifetime = np.round(rng.exponential(np.where(tier == "premium", 60.0, 40.0))) + 1.0
+    churn = pd.Series(signup + pd.to_timedelta(lifetime, unit="D"))
+    df = pd.DataFrame(
+        {
+            "cid": [f"c{i}" for i in range(n)],
+            "start": signup,
+            "churn": churn.where(churn <= pd.Timestamp("2026-05-31")),
+            "tier": tier,
+        }
+    )
+    design = StudyDesign.from_event_dates(
+        df,
+        id_col="cid",
+        origin_col="start",
+        churn_date_col="churn",
+        active_as_of="2026-05-31",
+        group_cols=["tier"],
+    )
+    table = design.derive()
+    n_times = len(np.unique(table.loc[table[EVENT] == 1, EXIT]))
+    assert n_times < int(table[EVENT].sum())  # ties genuinely present
+
+    report = tenure.logrank_test(design, by="tier")
+    ref = multivariate_logrank_test(
+        table[EXIT].to_numpy(float), table["tier"].to_numpy(), table[EVENT].to_numpy(int)
+    )
+    assert np.isclose(report.test_statistic, ref.test_statistic, atol=1e-9)
+    assert np.isclose(report.p_value, ref.p_value, atol=1e-12)

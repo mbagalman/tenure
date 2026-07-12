@@ -17,6 +17,19 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
   `naive_vs_corrected_immortal_demo(landmark=...)` is now `landmark_time=...` (the old name
   shadowed the public `landmark()` function).
 
+### Changed (performance)
+
+- `logrank_test` is vectorized to O((rows + events) log rows) -- ~1300x faster on large cohorts
+  with continuous tenures (66s -> 0.05s at 100k rows; 0.7s at 1e6). Identical math: per-group
+  risk sets via `searchsorted` on sorted entry/duration arrays, deaths via `np.add.at`,
+  covariance via einsum; pinned by the lifelines reference-match suite plus a new tie-heavy
+  reference case. Degrees-of-freedom rank detection now uses a magnitude-scaled tolerance
+  (analytic cancellations leave float residuals the machine-epsilon default miscounts).
+- Performance-pass verdicts for the other documented candidates (benchmarked, left as-is):
+  the entry-aware CV concordance runs at fold sizes (~1s at 10k rows) where it does not bind;
+  one-hot encoding at 1e6 rows x cardinality 50 is a one-time ~6s/400MB cost dwarfed by the
+  model fit. Core KM + LTV: 1e6 rows in ~6-8s.
+
 ### Added
 
 - **API stability and deprecation policy** ([stability page](stability.md)): the contract v1.0
