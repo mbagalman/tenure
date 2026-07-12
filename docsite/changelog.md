@@ -11,6 +11,13 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ### Fixed
 
+- `retention_at` (and `summarize`) no longer crash on duplicate horizons like ``[30, 30]``
+  (review) -- horizons dedupe order-preserving; asking for a horizon twice means asking once.
+- `churn_risk_scores` on a `TimeVaryingCox` now raises a clear error pointing at
+  `TimeVaryingCox.risk_scores()` / `predict_survival(path)` (review) -- it previously crashed
+  with a raw `AttributeError` deep in lifelines (a time-varying fitter cannot produce the
+  per-subject survival-at-horizon column from a single covariate row).
+
 - `summarize(horizons=[])` no longer returns an empty table (review): the retention-first inner
   merge annihilated the RMST/LTV rows against an empty retention frame. The table now assembles
   on a base frame of the groups, so an empty-horizons report carries RMST/LTV with no retention

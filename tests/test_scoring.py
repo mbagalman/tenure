@@ -100,3 +100,41 @@ def test_explicit_design_matches_default():
     default = tenure.churn_risk_scores(cox, horizon=365.0).table
     explicit = tenure.churn_risk_scores(cox, cox.design, horizon=365.0).table
     pd.testing.assert_frame_equal(default, explicit)
+
+
+def test_time_varying_model_rejected_with_guidance():
+    # churn_risk_scores needs per-subject survival curves; CoxTimeVaryingFitter cannot produce
+    # them from a single covariate row, and previously this crashed with a raw AttributeError
+    # deep in lifelines (review fix). It must be a clear error pointing at the right tool.
+    import pytest
+
+    from tenure import TenureValidationError, TimeVaryingCox
+
+    rng = np.random.default_rng(0)
+    orig = pd.Timestamp("2024-01-01")
+    rows = []
+    for i in range(120):
+        u = rng.uniform(50.0, 300.0)
+        t1 = rng.exponential(400.0)
+        if t1 < u:
+            rows.append({"cid": f"c{i}", "o": orig, "s": 0.0, "e": t1, "ev": 1, "x": 0})
+            continue
+        t2 = u + rng.exponential(133.0)
+        end, ev = (t2, 1) if t2 < 500.0 else (500.0, 0)
+        rows.append({"cid": f"c{i}", "o": orig, "s": 0.0, "e": u, "ev": 0, "x": 0})
+        rows.append({"cid": f"c{i}", "o": orig, "s": u, "e": end, "ev": ev, "x": 1})
+    panel = pd.DataFrame(rows)
+    for col in ("s", "e"):
+        panel[col] = orig + pd.to_timedelta(panel[col], unit="D")
+    design = StudyDesign.from_intervals(
+        panel,
+        id_col="cid",
+        origin_col="o",
+        interval_start_col="s",
+        interval_end_col="e",
+        event_col="ev",
+        covariate_cols=["x"],
+    )
+    tv = TimeVaryingCox().fit(design)
+    with pytest.raises(TenureValidationError, match="risk_scores"):
+        tenure.churn_risk_scores(tv, horizon=365.0)

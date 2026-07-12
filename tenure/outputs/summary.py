@@ -89,8 +89,9 @@ def summarize(
     """
     survival = as_survival(estimator)
     # np.asarray first: a scalar string like "30" must become [30.0], never iterate to
-    # characters ([3.0, 0.0]) -- the same coercion retention_at uses (review fix).
-    horizons = [float(h) for h in np.atleast_1d(np.asarray(horizons, dtype=float))]
+    # characters ([3.0, 0.0]) -- the same coercion retention_at uses (review fix). Duplicates
+    # dedupe order-preserving (a repeated horizon would crash the retention pivot).
+    horizons = list(dict.fromkeys(float(h) for h in np.atleast_1d(np.asarray(horizons, float))))
 
     retention = retention_at(survival, horizons, min_at_risk=min_at_risk) if horizons else None
     rmst_frame = rmst(survival, horizon=ltv_horizon, min_at_risk=min_at_risk)

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from tenure._frame import ID
+from tenure.exceptions import TenureValidationError
 from tenure.outputs._common import audit_verdict
 
 _SCORE_COLUMNS = ["id", "risk_score", "survival_at_horizon", "risk_percentile"]
@@ -48,6 +49,13 @@ def churn_risk_scores(cox, design=None, *, horizon: float = 365.0, audit_report=
     - ``survival_at_horizon`` = predicted survival probability at ``horizon``.
     - ``risk_percentile`` = ``rank(pct=True)`` of risk_score within the cohort, in [0, 1].
     """
+    if not hasattr(getattr(cox, "fitter", None), "predict_survival_function"):
+        raise TenureValidationError(
+            "churn_risk_scores needs a static Cox model (CoxPH): survival_at_horizon requires "
+            "per-subject survival curves, which a time-varying fitter cannot produce from a "
+            "single covariate row. For a TimeVaryingCox use .risk_scores() (per-interval risk) "
+            "or .predict_survival(path) for a covariate path."
+        )
     design = design if design is not None else cox.design
     table = design.derive()
     encoded = cox.encode_for_prediction(design)

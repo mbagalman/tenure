@@ -23,7 +23,9 @@ def retention_at(
     retention there is read off the flat KM tail and should be treated with caution.
     """
     survival = as_survival(estimator)
-    horizons = [float(h) for h in np.atleast_1d(horizons)]
+    # Order-preserving dedupe: a repeated horizon (e.g. [30, 30]) would duplicate the time index
+    # and crash the per-horizon lookup (review fix); asking twice means asking once.
+    horizons = list(dict.fromkeys(float(h) for h in np.atleast_1d(horizons)))
     rows = []
     for group in survival.groups:
         curve = survival.curve(group)

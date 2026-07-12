@@ -175,3 +175,15 @@ def test_summary_scalar_string_horizon_not_iterated():
     # Scalar numbers behave the same way.
     report2 = tenure.summarize(km, period_margin=12.0, ltv_horizon=365.0, horizons=30)
     assert [c for c in report2.table.columns if c.startswith("retention@")] == ["retention@30"]
+
+
+def test_duplicate_horizons_deduped_not_crashed():
+    # [30, 30, 90] used to duplicate the time index and crash the per-horizon float cast
+    # (review fix); asking for a horizon twice means asking once.
+    km = _fit_by_plan()
+    ret = tenure.retention_at(km, [30, 30, 90])
+    assert list(ret[ret["group"] == ret["group"].iloc[0]]["horizon"]) == [30.0, 90.0]
+    report = tenure.summarize(km, period_margin=12.0, ltv_horizon=365.0, horizons=[30, 30, 90])
+    cols = [c for c in report.table.columns if c.startswith("retention@")]
+    assert cols == ["retention@30", "retention@90"]
+    assert report.metadata["horizons"] == [30.0, 90.0]
