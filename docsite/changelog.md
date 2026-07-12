@@ -7,7 +7,12 @@ All notable changes to Tenure are recorded here. The format is based on
 Until v1.0 the API is still settling and minor (0.x) releases may make small breaking changes.
 Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even pre-1.0.
 
-## [Unreleased]
+## [0.5.1] -- 2026-07-11
+
+The hardening patch: every finding from four rounds of external review of the v0.5 surface, all
+verified empirically before fixing. Two corrections change reported statistics (the stratified
+C-index and the log-rank degrees of freedom) -- if you scored stratified models or ran log-rank
+tests with sparse groups on v0.5.0, re-run them.
 
 ### Fixed
 
@@ -211,7 +216,7 @@ with the study-design audit as the hero feature.
 - Packaging: MIT license, pyproject/hatchling, ruff, pytest, GitHub Actions (Linux + Windows),
   Python 3.10+.
 
-[Unreleased]: https://github.com/mbagalman/tenure/compare/v0.5.0...HEAD
+[0.5.1]: https://github.com/mbagalman/tenure/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mbagalman/tenure/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mbagalman/tenure/releases/tag/v0.4.0
 [0.3.1]: https://github.com/mbagalman/tenure/releases/tag/v0.3.1

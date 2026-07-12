@@ -40,7 +40,7 @@ pip install -e ".[docs]"   # mkdocs-material + mkdocstrings, to build this docum
 
 ```python
 import tenure
-print(tenure.__version__)            # 0.5.0
+print(tenure.__version__)            # 0.5.1
 
 # Run the built-in demo end to end -- no data of your own needed.
 result = tenure.naive_vs_corrected_demo()

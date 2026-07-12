@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tenure"
-version = "0.5.0"
+version = "0.5.1"
 description = "Audit-first survival analysis for B2C customer churn -- makes the correct churn study design the default."
 readme = "README.md"
 requires-python = ">=3.10"
