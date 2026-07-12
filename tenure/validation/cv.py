@@ -33,7 +33,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from tenure._frame import ENTRY, EVENT, EXIT, ID, ORIGIN, ensure_estimable, unit_factor
+from tenure._frame import ENTRY, EVENT, EXIT, ID, ensure_estimable
 from tenure.exceptions import TenureValidationError
 from tenure.study_design import StudyDesign
 from tenure.validation.result import VAL003_PANEL_LEAKAGE, ValidationResult
@@ -68,42 +68,37 @@ def ensure_panel_safe(*id_groups: Any) -> None:
 
 
 def _rebuild(design, rows: pd.DataFrame) -> StudyDesign:
-    """Rebuild a StudyDesign from a subset of canonical rows (the temporal_holdout pattern).
+    """Build a fold StudyDesign directly from a subset of canonical rows.
 
-    Tenures are converted back to calendar dates and re-ingested through ``from_intervals``, so
-    entry/exit/event/covariates round-trip exactly and delayed entry is preserved.
+    Unlike the temporal holdout (which MODIFIES rows and so re-ingests through
+    ``from_intervals``), a fold is a pure row subset -- so the canonical float tenures are carried
+    over verbatim (no tenure -> date -> tenure round trip, no float precision loss; review fix)
+    and the parent's ``covariate_mappings`` are inherited, keeping every fold's encoded column
+    space identical to the parent's.
     """
-    factor = unit_factor(design.time_unit)
-    covariate_cols = list(getattr(design, "covariate_cols", []) or [])
-    group_cols = list(getattr(design, "group_cols", []) or [])
-    carry = covariate_cols + [c for c in group_cols if c not in covariate_cols]
-
-    origins = pd.to_datetime(rows[ORIGIN]).reset_index(drop=True)
-    frame = pd.DataFrame(
-        {
-            ID: rows[ID].to_numpy(),
-            ORIGIN: origins,
-            # Vectorized tenure -> date (the scalar form of split.py's _to_date).
-            "start": origins
-            + pd.to_timedelta(rows[ENTRY].to_numpy(dtype=float) * factor, unit="D"),
-            "end": origins + pd.to_timedelta(rows[EXIT].to_numpy(dtype=float) * factor, unit="D"),
-            "event": rows[EVENT].to_numpy(dtype=int),
-        }
-    )
-    for col in carry:
-        frame[col] = rows[col].to_numpy()
-
-    return StudyDesign.from_intervals(
-        frame,
-        id_col=ID,
-        origin_col=ORIGIN,
-        interval_start_col="start",
-        interval_end_col="end",
-        event_col="event",
-        covariate_cols=covariate_cols,
-        group_cols=group_cols,
+    clone = StudyDesign(
+        canonical=rows.reset_index(drop=True),
+        analysis_start=design.analysis_start,
+        event_observed_from=design.event_observed_from,
+        entry_modeled=design.entry_modeled,
+        includes_pre_entry_churners=design.includes_pre_entry_churners,
+        group_cols=list(design.group_cols),
         time_unit=design.time_unit,
+        covariate_cols=list(design.covariate_cols),
+        covariate_mappings=dict(design.covariate_mappings),
+        interval=design.interval,
+        attest_origin_correct=design.attest_origin_correct,
+        attest_invariant_covariates=list(design.attest_invariant_covariates),
+        status_map=design.status_map,
+        n_excluded=design.n_excluded,
+        n_unmapped=design.n_unmapped,
+        unmapped_statuses=list(design.unmapped_statuses),
+        informative_censoring_statuses=list(design.informative_censoring_statuses),
     )
+    # Carry the audit gate: panel_folds already required the parent to be estimable, so its folds
+    # are too (a fresh __init__ resets audited=False, which would re-block an audited parent).
+    clone.audited = design.audited
+    return clone
 
 
 def panel_folds(design: Any, k: int = 5, *, seed: int = 0) -> list:
@@ -130,7 +125,9 @@ def panel_folds(design: Any, k: int = 5, *, seed: int = 0) -> list:
     if not isinstance(k, int) or k < 2:
         raise TenureValidationError(f"k must be an integer >= 2; got {k!r}.")
     table = design.canonical
-    ids = pd.unique(table[ID])
+    # Sorted before shuffling so folds depend only on (id set, seed), not on the dataframe's row
+    # order -- the same records in a different order produce identical folds (review fix).
+    ids = np.sort(pd.unique(table[ID]))
     if k > len(ids):
         raise TenureValidationError(
             f"k={k} exceeds the number of customers ({len(ids)}); every fold needs at least one."
@@ -151,7 +148,11 @@ def panel_folds(design: Any, k: int = 5, *, seed: int = 0) -> list:
 
 
 def _entry_aware_concordance(
-    entry: np.ndarray, duration: np.ndarray, event: np.ndarray, risk: np.ndarray
+    entry: np.ndarray,
+    duration: np.ndarray,
+    event: np.ndarray,
+    risk: np.ndarray,
+    groups: np.ndarray | None = None,
 ) -> tuple[float, int]:
     """Harrell's C restricted to pairs genuinely at risk together (delayed-entry aware).
 
@@ -160,12 +161,23 @@ def _entry_aware_concordance(
     survive at least ``T``). Two events at the same time are not comparable; tied risks earn half
     credit. With ``entry == 0`` everywhere this reproduces lifelines' ``concordance_index``
     exactly (reference-match tested). Returns ``(c_index, n_comparable_pairs)``.
+
+    ``groups`` (optional) further restricts comparability to SAME-GROUP pairs -- the stratified
+    C-index. A stratified Cox's partial hazard ``exp(beta^T x)`` carries no baseline, so ranking
+    it across strata assumes the strata share a baseline hazard, which is precisely what the model
+    rejects; within-stratum pairs pooled by pair count (the pair-weighted average) score what the
+    model actually claims (review fix).
+
+    Complexity: O(events x rows) boolean work per call -- exact and simple, fine at CV-fold sizes,
+    but a known bottleneck on very large cohorts (e.g. 5e4 events x 5e5 rows).
     """
     credit = 0.0
     n_pairs = 0
     for i in np.flatnonzero(event == 1):
         t_i = duration[i]
         comparable = (entry < t_i) & ((duration > t_i) | ((duration == t_i) & (event == 0)))
+        if groups is not None:
+            comparable &= groups == groups[i]
         n = int(comparable.sum())
         if n == 0:
             continue
@@ -175,9 +187,18 @@ def _entry_aware_concordance(
     if n_pairs == 0:
         raise TenureValidationError(
             "entry-aware C-index is undefined: no comparable pairs (no two subjects were at risk "
-            "together around an event). The fold may be too small or all-censored; reduce k."
+            "together around an event, within a stratum if stratified). The fold may be too small "
+            "or all-censored; reduce k."
         )
     return credit / n_pairs, n_pairs
+
+
+def _strata_labels(table: pd.DataFrame, strata: list) -> np.ndarray:
+    """One combined per-row stratum label (multi-column strata joined, KM-label style)."""
+    labels = table[strata[0]].astype(str)
+    for col in strata[1:]:
+        labels = labels + "|" + table[col].astype(str)
+    return labels.to_numpy()
 
 
 def _fold_risk(model, test_design) -> np.ndarray:
@@ -204,6 +225,12 @@ def cross_validate(
     a single number. Folds come from ``panel_folds`` (customers never split; leakage asserted).
     Cross-sectional by construction -- see ``panel_folds``; ``temporal_holdout`` remains the
     forward-in-time headline validation.
+
+    Stratified models are scored with the STRATIFIED C-index (within-stratum pairs, pooled by
+    pair count): a stratified Cox's partial hazard carries no baseline, so cross-strata ranking
+    is meaningless by the model's own assumptions. Note what that scores: discrimination from the
+    remaining covariates. The stratified variable's effect lives in the baselines and is
+    deliberately not part of the C-index -- if you want it scored, keep it as a covariate instead.
 
     Args:
         model_factory: Zero-argument callable returning an unfitted estimator, e.g.
@@ -233,12 +260,18 @@ def cross_validate(
             raise TenureValidationError(
                 f"fold {fold_i}: non-finite risk scores; the model may not have converged."
             )
+        # A stratified model's partial hazard carries no baseline, so pairs are restricted to
+        # within-stratum (the stratified C-index) -- cross-strata ranking would silently assume a
+        # shared baseline, throwing away exactly what the strata encode (review fix).
+        strata = list(getattr(model, "strata", None) or [])
+        groups = _strata_labels(test_table, strata) if strata else None
         try:
             c, n_pairs = _entry_aware_concordance(
                 test_table[ENTRY].to_numpy(dtype=float),
                 test_table[EXIT].to_numpy(dtype=float),
                 test_table[EVENT].to_numpy(dtype=int),
                 risk,
+                groups=groups,
             )
         except TenureValidationError as exc:
             raise TenureValidationError(f"fold {fold_i}: {exc}") from exc
@@ -264,6 +297,9 @@ def cross_validate(
         "seed": int(seed),
         "n_subjects": int(design.canonical[ID].nunique()),
         "entry_aware": entry_aware,  # delayed entry present -> risk-set-restricted pairs
+        # Within-stratum pairs for stratified models: the stratified variable's own effect lives
+        # in the baselines and is deliberately NOT scored (that is what stratifying means).
+        "pair_restriction": "within_stratum" if groups is not None else "all",
         "censoring_method": "right_censored_harrell_entry_aware",
         "model_type": type(model).__name__,  # the last fitted fold model
         "note": (

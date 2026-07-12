@@ -56,6 +56,11 @@ print(res.table)                                       # one C-index per fold
 print(res.metadata["estimate"], res.metadata["std"])   # mean +/- spread
 ```
 
+A stratified Cox is scored with the **stratified C-index** (within-stratum pairs only): its
+partial hazard carries no baseline, so cross-strata ranking would assume exactly the shared
+baseline the model rejects. The stratified variable's effect lives in the baselines and is
+deliberately not part of the score.
+
 Two correctness points are built in. First, the **panel guarantee**: folds come from
 [`panel_folds`](../reference/validation.md), which partitions customer ids (all of a customer's
 intervals travel together) and asserts disjointness -- and if you build folds by hand,

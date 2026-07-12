@@ -37,6 +37,7 @@ from tenure._frame import ID
 from tenure.estimators.survival import SurvivalFunction
 from tenure.exceptions import TenureValidationError
 from tenure.outputs._common import as_survival
+from tenure.validation.cv import _entry_aware_concordance, _strata_labels
 from tenure.validation.result import VAL002_HORIZON_SUPPORT, ValidationResult
 
 
@@ -77,6 +78,11 @@ def concordance(model, test_cohort, *, horizon: float | None = None) -> Validati
     ``horizon``), or a raw per-subject risk array. Higher risk should mean shorter survival; the
     metric is computed on the cohort's eval clock (``eval_duration`` / ``eval_event``). 0.5 is
     random, 1.0 is perfect concordance. Returns a ``ValidationResult``.
+
+    A STRATIFIED Cox is scored with within-stratum pairs (the stratified C-index, pooled by pair
+    count): its partial hazard carries no baseline, so ranking it across strata would assume the
+    shared baseline the model explicitly rejects. The per-stratum tie/censoring conventions match
+    lifelines exactly.
     """
     risk = _subject_risk(model, test_cohort, horizon)
     table = test_cohort.table
@@ -92,14 +98,26 @@ def concordance(model, test_cohort, *, horizon: float | None = None) -> Validati
             "missing, or the model failed to converge."
         )
 
-    # lifelines scores concordance as higher-predicted => longer survival, so feed -risk.
+    strata = list(getattr(model, "strata", None) or [])
     try:
-        estimate = float(concordance_index(durations, -risk, events))
-    except ZeroDivisionError as exc:
+        if strata:
+            # Within-stratum pairs on the eval clock (entry = 0, so per-stratum behavior is
+            # exactly lifelines'); pooled by pair count -- the stratified C-index (review fix).
+            estimate, _ = _entry_aware_concordance(
+                np.zeros(len(durations)),
+                durations,
+                events,
+                risk,
+                groups=_strata_labels(table, strata),
+            )
+        else:
+            # lifelines scores concordance as higher-predicted => longer survival, so feed -risk.
+            estimate = float(concordance_index(durations, -risk, events))
+    except (ZeroDivisionError, TenureValidationError) as exc:
         raise TenureValidationError(
             "C-index is undefined: the test cohort has no admissible (comparable) event pairs -- "
-            "e.g. it is all-censored after the cutoff. Choose an earlier cutoff or a cohort that "
-            "has post-cutoff churn."
+            "e.g. it is all-censored after the cutoff (or, for a stratified model, no stratum has "
+            "a comparable pair). Choose an earlier cutoff or a cohort with post-cutoff churn."
         ) from exc
 
     train_design = getattr(model, "design", None)
@@ -114,6 +132,7 @@ def concordance(model, test_cohort, *, horizon: float | None = None) -> Validati
         "prediction_time": test_cohort.prediction_time,
         # Harrell's C handles right-censoring via admissible (comparable) pairs -- not ignored.
         "censoring_method": "right_censored_harrell",
+        "pair_restriction": "within_stratum" if strata else "all",
         "model_type": type(model).__name__,
         "n_train_rows": n_train_rows,  # canonical rows (intervals for time-varying designs)
         "n_train_subjects": n_train_subjects,  # distinct customers

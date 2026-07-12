@@ -7,6 +7,24 @@ All notable changes to Tenure are recorded here. The format is based on
 Until v1.0 the API is still settling and minor (0.x) releases may make small breaking changes.
 Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even pre-1.0.
 
+## [Unreleased]
+
+### Fixed
+
+- Stratified Cox models are now scored with the **stratified C-index** (within-stratum pairs,
+  pooled by pair count) in both `cross_validate` and `concordance` (review). A stratified model's
+  partial hazard carries no baseline, so ranking it across strata assumed the shared baseline the
+  model explicitly rejects -- cross-strata pairs are no longer compared, and results record
+  `pair_restriction: "within_stratum"`. Note the semantics: the stratified variable's effect lives
+  in the baselines and is deliberately not part of the C-index.
+- `panel_folds` is now invariant to dataframe row order (review): customer ids are sorted before
+  the seeded shuffle, so the same records always produce the same folds.
+- Fold designs are built directly from the parent's canonical rows (review): float tenures are
+  carried bit-for-bit (no tenure -> date -> tenure round trip) and the parent's covariate
+  mappings are inherited, keeping every fold's encoded column space identical.
+- The entry-aware concordance documents its O(events x rows) cost (review) -- exact and fine at
+  fold sizes, a known bottleneck on very large cohorts.
+
 ## [0.5.0] -- 2026-07-11
 
 The adoption release: the deferred P2s pulled forward so choosing Tenure over hand-rolled KM + Cox
@@ -160,6 +178,7 @@ with the study-design audit as the hero feature.
 - Packaging: MIT license, pyproject/hatchling, ruff, pytest, GitHub Actions (Linux + Windows),
   Python 3.10+.
 
+[Unreleased]: https://github.com/mbagalman/tenure/compare/v0.5.0...HEAD
 [0.5.0]: https://github.com/mbagalman/tenure/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mbagalman/tenure/releases/tag/v0.4.0
 [0.3.1]: https://github.com/mbagalman/tenure/releases/tag/v0.3.1

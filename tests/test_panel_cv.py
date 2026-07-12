@@ -75,6 +75,23 @@ def test_tie_conventions_match_lifelines():
     assert (c, n) == (0.5, 1)
 
 
+def test_within_stratum_pairs_hand_computed():
+    # Stratum A churns fast with LOW partial hazards; stratum B churns slow with HIGH partial
+    # hazards (its protection lives in the baseline, which exp(Xb) does not carry). Within each
+    # stratum the ranking is perfect: a1(ev@10, r=5) vs a2(cens@20, r=1) concordant; b1(ev@100,
+    # r=9) vs b2(cens@200, r=8) concordant -> stratified C = 2/2 = 1.0. UNRESTRICTED pairs add
+    # the misleading cross-strata comparisons (a1 vs b1, a1 vs b2: discordant) -> C = 2/4 = 0.5.
+    entry = np.zeros(4)
+    duration = np.array([10.0, 20.0, 100.0, 200.0])
+    event = np.array([1, 0, 1, 0])
+    risk = np.array([5.0, 1.0, 9.0, 8.0])
+    groups = np.array(["A", "A", "B", "B"])
+    grouped, n_grouped = _entry_aware_concordance(entry, duration, event, risk, groups=groups)
+    assert (grouped, n_grouped) == (1.0, 2)
+    ungrouped, n_all = _entry_aware_concordance(entry, duration, event, risk)
+    assert (ungrouped, n_all) == (0.5, 4)  # the flaw the restriction corrects
+
+
 def test_entry_awareness_hand_computed():
     # i: event at t=10 (risk 3). j: censored at 20 (risk 1) -> comparable, concordant.
     # k: ENTERS at 15, after i's event (risk 5, event at 30) -> NOT at risk at t=10, excluded;
@@ -120,9 +137,20 @@ def test_folds_deterministic_and_seed_sensitive():
     )
 
 
+def test_folds_invariant_to_row_order():
+    # Same records, different dataframe order -> identical folds for the same seed (ids are
+    # sorted before shuffling; review fix).
+    df = _df()
+    a = tenure.panel_folds(_design(df), k=3, seed=0)
+    b = tenure.panel_folds(_design(df.sample(frac=1.0, random_state=42)), k=3, seed=0)
+    for (_, ta), (_, tb) in zip(a, b, strict=True):
+        assert set(ta.canonical[ID]) == set(tb.canonical[ID])
+
+
 def test_fold_designs_round_trip_exactly():
-    # The rebuilt fold designs must carry the parent's rows verbatim: entry, exit, event, and
-    # covariates -- delayed entry included (tenure -> date -> tenure round trip).
+    # Fold designs carry the parent's canonical rows verbatim -- float tenures bit-for-bit (no
+    # tenure -> date -> tenure round trip; review fix), covariates, and the parent's
+    # covariate_mappings (so every fold encodes into the identical column space).
     df = tenure.load_svod_demo(with_left_truncation=True)
     design = StudyDesign.from_event_dates(
         df,
@@ -142,10 +170,13 @@ def test_fold_designs_round_trip_exactly():
     for side in (train, test):
         sub = side.canonical.sort_values(ID).reset_index(drop=True)
         ref = parent[parent[ID].isin(set(sub[ID]))].sort_values(ID).reset_index(drop=True)
-        assert np.allclose(sub[ENTRY].to_numpy(float), ref[ENTRY].to_numpy(float), atol=1e-6)
-        assert np.allclose(sub[EXIT].to_numpy(float), ref[EXIT].to_numpy(float), atol=1e-6)
+        assert np.array_equal(sub[ENTRY].to_numpy(float), ref[ENTRY].to_numpy(float))  # exact
+        assert np.array_equal(sub[EXIT].to_numpy(float), ref[EXIT].to_numpy(float))  # exact
         assert (sub[EVENT].to_numpy(int) == ref[EVENT].to_numpy(int)).all()
         assert (sub["plan"].to_numpy() == ref["plan"].to_numpy()).all()
+        assert side.covariate_mappings == design.covariate_mappings  # inherited, not re-derived
+        assert side.time_unit == design.time_unit
+        assert side.interval == design.interval
     assert test.canonical[ENTRY].to_numpy(float).max() > 0.0  # delayed entry preserved
 
 
@@ -265,11 +296,55 @@ def test_cross_validate_delayed_entry_flagged():
     assert res.metadata["entry_aware"] is True  # risk-set-restricted pairs were used
 
 
-def test_cross_validate_stratified_cox():
+def test_cross_validate_stratified_noise_covariate_near_chance():
+    # In _design, tier drives the 4x lifetime gap and age is noise. Stratifying on tier moves
+    # its effect into the baselines, so the stratified C-index (within-stratum pairs) scores only
+    # what remains -- noise -- and must sit near chance, NOT inherit tier's discrimination.
     design = _design()
     res = tenure.cross_validate(lambda: CoxPH(strata=["tier"]), design, k=3, seed=0)
     assert len(res.table) == 3
-    assert np.isfinite(res.metadata["estimate"])
+    assert res.metadata["pair_restriction"] == "within_stratum"
+    assert 0.40 < res.metadata["estimate"] < 0.60
+
+
+def _informative_within_stratum_df(n=900, seed=0):
+    """Tier shifts the baseline 4x; age drives hazard WITHIN each tier (exp(0.02 * age))."""
+    rng = np.random.default_rng(seed)
+    signup = pd.Timestamp("2024-01-01")
+    tier = rng.choice(["basic", "premium"], size=n)
+    age = rng.integers(20, 70, size=n).astype(float)
+    scale = np.where(tier == "premium", 600.0, 150.0) * np.exp(-0.02 * (age - 45.0))
+    lifetime = rng.exponential(scale)
+    churn = pd.Series(signup + pd.to_timedelta(lifetime, unit="D"))
+    return pd.DataFrame(
+        {
+            "cid": [f"c{i}" for i in range(n)],
+            "start": signup,
+            "churn": churn.where(churn <= pd.Timestamp("2026-05-31")),
+            "tier": tier,
+            "age": age,
+        }
+    )
+
+
+def test_cross_validate_stratified_recovers_within_stratum_signal():
+    design = _design(_informative_within_stratum_df())
+    res = tenure.cross_validate(lambda: CoxPH(strata=["tier"]), design, k=3, seed=0)
+    assert res.metadata["pair_restriction"] == "within_stratum"
+    assert res.metadata["estimate"] > 0.58  # age's real within-stratum effect, out of fold
+
+
+def test_concordance_holdout_stratified_uses_within_stratum_pairs():
+    # The same review fix applies to the temporal-holdout concordance: a stratified model's
+    # partial hazard must not be ranked across strata there either.
+    design = _design(_informative_within_stratum_df())
+    train, test = tenure.temporal_holdout(design, cutoff="2025-01-01")
+    model = CoxPH(strata=["tier"]).fit(train)
+    res = tenure.concordance(model, test)
+    assert res.metadata["pair_restriction"] == "within_stratum"
+    assert np.isfinite(res.estimate)
+    plain = tenure.concordance(CoxPH().fit(train), test)
+    assert plain.metadata["pair_restriction"] == "all"  # unstratified path unchanged
 
 
 def _tv_panel(n=400, seed=0):
