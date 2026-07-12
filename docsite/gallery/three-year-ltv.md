@@ -45,7 +45,7 @@ correctly recovers that these synthetic lifetimes are memoryless:
 para = tenure.ParametricSurvival("weibull").fit(study)
 print(para.params_.round(3).to_string(index=False))
 
-hyb = tenure.hybrid_survival(km, para, horizon=1095)
+hyb = tenure.hybrid_survival(km, para, plot_horizon=1095)
 print(tenure.rmst(hyb, horizon=1095).round(1).to_string(index=False))
 ```
 

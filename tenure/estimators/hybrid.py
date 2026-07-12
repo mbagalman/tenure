@@ -125,7 +125,7 @@ def hybrid_survival(
     empirical: Any,
     modeled: Any,
     *,
-    horizon: float | None = None,
+    plot_horizon: float | None = None,
     min_at_risk: int = _DEFAULT_MIN_AT_RISK,
 ) -> SurvivalFunction:
     """Splice an empirical survival function with a modeled tail into one SurvivalFunction.
@@ -142,8 +142,9 @@ def hybrid_survival(
             SurvivalFunction with the same group labels -- e.g. fit both with the same ``by=``.
             A step-curve tail (Cox profile curves) is accepted but caps the hybrid's effective
             horizon at its own support.
-        horizon: How far past the boundary to materialize the tail in the stored plotting arrays
-            (queries are exact at any tenure regardless). Defaults to twice each boundary.
+        plot_horizon: How far past the boundary to materialize the tail in the STORED PLOTTING
+            arrays only -- queries (``at``/``integral``/RMST/LTV) are exact at any tenure
+            regardless. Defaults to twice each boundary.
         min_at_risk: Risk-set floor defining each group's splice boundary.
 
     Returns:
@@ -184,7 +185,7 @@ def hybrid_survival(
         scale = s_emp_b / s_mod_b
 
         # Materialized arrays for plotting: empirical steps on [0, b] + a dense tail grid.
-        plot_end = float(horizon) if horizon is not None else 2.0 * boundary
+        plot_end = float(plot_horizon) if plot_horizon is not None else 2.0 * boundary
         keep = e.times <= boundary
         tail_grid = (
             np.linspace(boundary, plot_end, 100) if plot_end > boundary else np.array([boundary])

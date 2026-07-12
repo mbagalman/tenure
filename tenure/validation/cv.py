@@ -101,7 +101,7 @@ def _rebuild(design, rows: pd.DataFrame) -> StudyDesign:
     return clone
 
 
-def panel_folds(design: Any, k: int = 5, *, seed: int = 0) -> list:
+def panel_folds(design: Any, k: int = 5, *, seed: int = 0) -> list[tuple[StudyDesign, StudyDesign]]:
     """Split a design into ``k`` cross-validation folds that never split a customer (DV4-7).
 
     Customer ids are shuffled deterministically (``seed``) and partitioned into ``k`` groups;

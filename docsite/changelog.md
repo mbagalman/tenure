@@ -9,7 +9,23 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ## [Unreleased]
 
+### Changed
+
+- API freeze review (pre-1.0, breaking-now-or-never renames; no external users affected):
+  `hybrid_survival(horizon=...)` is now `plot_horizon=...` (it only controls how far the stored
+  plotting arrays materialize -- queries were always exact at any tenure), and
+  `naive_vs_corrected_immortal_demo(landmark=...)` is now `landmark_time=...` (the old name
+  shadowed the public `landmark()` function).
+
 ### Added
+
+- **API stability and deprecation policy** ([stability page](stability.md)): the contract v1.0
+  will freeze -- names, signatures, tidy-frame columns, check IDs, exception types, defaults
+  policy, the additive-only metadata guarantee, the explicit escape hatches (`.fitter`,
+  constructors, `TestCohort.paths`), and the warn-one-minor-release deprecation procedure.
+- `GroupCurve` and `HazardCurve` are exported at top level -- `SurvivalFunction.curve()` /
+  `CumulativeHazardFunction.curve()` return them, and `GroupCurve`'s subclasses were already
+  exported.
 
 - **Example gallery** (`docsite/gallery/`): complete, narrated analyses whose code blocks are
   executed by the test suite on every commit (doc-rot gate). Launch set: *The $10 mistake*

@@ -85,4 +85,5 @@ nav:
       - Audit: reference/audit.md
       - Plotting: reference/plotting.md
       - Datasets and demos: reference/datasets.md
+  - API stability: stability.md
   - Changelog: changelog.md

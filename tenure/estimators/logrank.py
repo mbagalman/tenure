@@ -119,7 +119,7 @@ def _logrank_statistic(
     return observed, expected, statistic, df, p_value
 
 
-def logrank_test(data: Any, *, by: str | list[str] | None) -> LogRankReport:
+def logrank_test(data: Any, *, by: str | list[str]) -> LogRankReport:
     """Log-rank test comparing survival across the ``by`` groups of a study design.
 
     The inferential companion to ``KaplanMeier.fit(..., by=...)``: it groups the same way and

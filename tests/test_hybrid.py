@@ -54,7 +54,7 @@ def fitted():
     design = _design()
     km = KaplanMeier().fit(design, by="tier")
     para = ParametricSurvival("exponential").fit(design, by="tier")
-    return km, para, hybrid_survival(km, para, horizon=2000)
+    return km, para, hybrid_survival(km, para, plot_horizon=2000)
 
 
 def test_right_continuous_at_boundary(fitted):

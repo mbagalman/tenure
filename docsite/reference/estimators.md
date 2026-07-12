@@ -48,3 +48,7 @@ Kaplan-Meier, Cox, and time-varying Cox are interchangeable downstream.
 ## The survival-function interface
 
 ::: tenure.estimators.survival.SurvivalFunction
+
+::: tenure.estimators.survival.GroupCurve
+
+::: tenure.estimators.nelson_aalen.HazardCurve

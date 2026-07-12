@@ -174,7 +174,7 @@ def naive_vs_corrected_immortal_demo(
     *,
     n: int = 5000,
     seed: int = 0,
-    landmark: float = 60.0,
+    landmark_time: float = 60.0,
     upgrade_prob: float = 0.5,
     admin: float = 365.0,
     median_tenure: float = 180.0,
@@ -188,7 +188,7 @@ def naive_vs_corrected_immortal_demo(
     """
     lam = np.log(2.0) / median_tenure
     static_df, interval_df = _simulate_immortal_cohort(
-        n, seed, lam=lam, landmark=landmark, upgrade_prob=upgrade_prob, admin=admin
+        n, seed, lam=lam, landmark=landmark_time, upgrade_prob=upgrade_prob, admin=admin
     )
 
     # Naive: one static row per subject, classified by the FINAL ever-upgraded flag.
