@@ -71,6 +71,11 @@ nav:
       - Risk modeling with Cox: tutorials/risk-modeling.md
       - Time-varying covariates: tutorials/time-varying.md
       - Out-of-time validation: tutorials/validation.md
+  - Gallery:
+      - Overview: gallery/index.md
+      - The $10 mistake: gallery/the-ltv-gap.md
+      - 3-year LTV from 2 years of data: gallery/three-year-ltv.md
+      - Real data - Telco churn: gallery/telco-churn.md
   - The bias audit: audit-catalog.md
   - API reference:
       - Study design: reference/study-design.md

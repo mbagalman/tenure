@@ -59,7 +59,10 @@ study = tenure.StudyDesign.from_event_dates(
 
 The key line is `event_observed_from`. It tells Tenure that churn events were only *recorded*
 starting 2024-01-01, so any customer who signed up earlier must enter the risk set with delayed
-entry at the tenure they were first observed. Without it, the audit would **block**.
+entry at the tenure they were first observed. Without it, the audit **warns and demands an
+answer**: is your event history complete back to origin, or not? Answering honestly
+(`includes_pre_entry_churners=False`) escalates the finding to a **block** -- the design cannot
+be fit until delayed entry is modeled.
 
 ## 3. Audit before you trust a curve
 
@@ -68,9 +71,12 @@ report = tenure.audit(study)          # raises AuditBlockedError on a blocking d
 print(report.to_markdown())
 ```
 
-Because we modeled delayed entry, the audit passes. Had we omitted `event_observed_from`, this call
-would raise `AuditBlockedError` with a plain-language explanation of the left-truncation problem and
-how to fix it. That is the whole point: the dangerous design is the one that does not run.
+Because we modeled delayed entry, the audit passes. Had we omitted `event_observed_from`, TNR001
+would have warned and asked whether event history is complete back to origin; declaring
+`includes_pre_entry_churners=False` (the truth, in a window-cut study) makes this call raise
+`AuditBlockedError` with a plain-language explanation and the fix. That is the whole point: the
+dangerous design is the one that cannot run. The
+[gallery walkthrough](../gallery/the-ltv-gap.md) shows the full escalation.
 
 ## 4. Fit and summarize
 

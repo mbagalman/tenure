@@ -7,6 +7,26 @@ All notable changes to Tenure are recorded here. The format is based on
 Until v1.0 the API is still settling and minor (0.x) releases may make small breaking changes.
 Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even pre-1.0.
 
+## [Unreleased]
+
+### Added
+
+- **Example gallery** (`docsite/gallery/`): complete, narrated analyses whose code blocks are
+  executed by the test suite on every commit (doc-rot gate). Launch set: *The $10 mistake*
+  (left truncation with the full warn -> attest -> block -> fix audit escalation, checked
+  against known truth), *A 3-year LTV from 2 years of data* (KM truncation vs parametric and
+  hybrid projection, landing within ~1.5% of truth), and *Real data: Telco churn* (the IBM
+  dataset ingested with its assumptions stated out loud -- the tenure-to-dates recipe, the
+  survivorship attestation, and the classic contract-type results). Gallery images regenerate
+  deterministically via `scripts/build_gallery_images.py`; the Telco CSV is user-downloaded,
+  never vendored.
+
+### Fixed
+
+- Quickstart wording: omitting `event_observed_from` makes TNR001 **warn and ask** whether
+  event history is complete; the block fires when you answer `includes_pre_entry_churners=False`.
+  The tutorial previously claimed the omission alone would raise `AuditBlockedError`.
+
 ## [0.5.1] -- 2026-07-11
 
 The hardening patch: every finding from four rounds of external review of the v0.5 surface, all
@@ -216,6 +236,7 @@ with the study-design audit as the hero feature.
 - Packaging: MIT license, pyproject/hatchling, ruff, pytest, GitHub Actions (Linux + Windows),
   Python 3.10+.
 
+[Unreleased]: https://github.com/mbagalman/tenure/compare/v0.5.1...HEAD
 [0.5.1]: https://github.com/mbagalman/tenure/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mbagalman/tenure/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mbagalman/tenure/releases/tag/v0.4.0

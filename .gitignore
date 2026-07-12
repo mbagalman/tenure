@@ -48,6 +48,9 @@ htmlcov/
 # MkDocs build output (source lives in docsite/, tracked)
 /site/
 
+# Local example-gallery datasets (downloaded by the user; never vendored -- see docsite/gallery)
+/data/
+
 # Type checkers / build backends
 *.so
 
