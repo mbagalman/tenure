@@ -151,11 +151,17 @@ def hybrid_survival(
         source curves as provenance.
 
     Raises:
-        TenureValidationError: If the group labels differ, or the model assigns zero survival at
-            a splice boundary (no tail can be anchored there).
+        TenureValidationError: If the curves' time units differ, the group labels differ, or the
+            model assigns zero survival at a splice boundary (no tail can be anchored there).
     """
     emp = _as_survival(empirical)
     mod = _as_survival(modeled)
+    if emp.time_unit != mod.time_unit:
+        raise TenureValidationError(
+            f"empirical and modeled curves must share a time_unit; got "
+            f"{emp.time_unit!r} vs {mod.time_unit!r}. Splicing a daily curve with a monthly "
+            "tail would silently misalign every tenure (review fix)."
+        )
     if set(emp.groups) != set(mod.groups):
         raise TenureValidationError(
             f"Group labels differ: empirical has {sorted(emp.groups)}, modeled has "

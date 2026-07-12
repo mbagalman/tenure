@@ -143,6 +143,85 @@ def test_no_delayed_entry_equals_zero_entry_path():
     assert np.isclose(report.test_statistic, ref.test_statistic, atol=1e-9)
 
 
+def test_degenerate_group_reduces_degrees_of_freedom():
+    # A group never at risk at ANY event time (all its members censored before the first event)
+    # contributes zero variance: the covariance rank drops, so df must drop with it (review fix).
+    # The statistic equals the 2-informative-group statistic exactly (pinv zeroes the dead
+    # dimension); testing it against chi2 with df=2 instead of df=1 would inflate the p-value.
+    rng = np.random.default_rng(0)
+    n = 200
+    signup = pd.Timestamp("2024-01-01")
+    # Groups a/b: events at 30+ days. Group c: CENSORED at day 5 -- gone before any event, so it
+    # is never in a risk set. (Needs the status schema: from_event_dates would censor an active
+    # customer at the snapshot, keeping it at risk throughout.)
+    dur = np.concatenate([30.0 + rng.exponential(100.0, n), 30.0 + rng.exponential(200.0, n)])
+    dur = np.concatenate([dur, np.full(30, 5.0)])
+    ev = np.concatenate([np.ones(2 * n, dtype=int), np.zeros(30, dtype=int)])
+    grp = np.array(["a"] * n + ["b"] * n + ["c"] * 30)
+    df = pd.DataFrame(
+        {
+            "cid": [f"x{i}" for i in range(2 * n + 30)],
+            "start": signup,
+            "exit_date": signup + pd.to_timedelta(dur, unit="D"),
+            "status": np.where(ev == 1, "churned", "left_early"),
+            "tier": grp,
+        }
+    )
+    design = StudyDesign.from_status(
+        df,
+        id_col="cid",
+        origin_col="start",
+        exit_col="exit_date",
+        status_col="status",
+        status_map={"churned": "event", "left_early": "censored"},
+        active_as_of=df["exit_date"].max() + pd.Timedelta(days=1),
+        group_cols=["tier"],
+    )
+    report = tenure.logrank_test(design, by="tier")
+    assert report.degrees_of_freedom == 1  # 2 informative groups, not 3
+
+    table = design.derive()
+    keep = table["tier"] != "c"
+    ref = multivariate_logrank_test(
+        table.loc[keep, EXIT].to_numpy(float),
+        table.loc[keep, "tier"].to_numpy(),
+        table.loc[keep, EVENT].to_numpy(int),
+    )
+    assert np.isclose(report.test_statistic, ref.test_statistic, atol=1e-9)
+    assert np.isclose(report.p_value, ref.p_value, atol=1e-12)  # df=1, the 2-group p
+
+
+def test_zero_rank_covariance_raises():
+    # Two groups NEVER at risk together: b's members exit (censored) before a's first event, so
+    # every event-time risk set is single-group and the covariance is identically zero.
+    df2 = pd.DataFrame(
+        {
+            "cid": ["a1", "a2", "b1", "b2"],
+            "start": pd.Timestamp("2024-01-01"),
+            "exit_date": [
+                pd.Timestamp("2024-06-01"),
+                pd.Timestamp("2024-07-01"),
+                pd.Timestamp("2024-01-15"),
+                pd.Timestamp("2024-01-20"),
+            ],
+            "status": ["churned", "churned", "active", "active"],
+            "tier": ["a", "a", "b", "b"],
+        }
+    )
+    design2 = StudyDesign.from_status(
+        df2,
+        id_col="cid",
+        origin_col="start",
+        exit_col="exit_date",
+        status_col="status",
+        status_map={"churned": "event", "active": "censored"},
+        active_as_of="2024-12-31",
+        group_cols=["tier"],
+    )
+    with pytest.raises(TenureValidationError, match="never at risk together|zero-rank"):
+        tenure.logrank_test(design2, by="tier")
+
+
 def test_report_table_contract():
     design = _design()
     report = tenure.logrank_test(design, by="tier")

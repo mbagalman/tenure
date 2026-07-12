@@ -86,9 +86,10 @@ def _logrank_statistic(
     for t in event_times:
         at_risk = (entry < t) & (duration >= t)  # left-truncation aware
         died = (duration == t) & (event == 1)
-        # Per-group at-risk (Y) and event (d) counts at t.
-        y = np.array([at_risk[group_index == k].sum() for k in range(n_groups)], dtype=float)
-        d = np.array([died[group_index == k].sum() for k in range(n_groups)], dtype=float)
+        # Per-group at-risk (Y) and event (d) counts at t, in one bincount pass per array
+        # (a per-group mask loop here is O(rows x groups) per event time; review fix).
+        y = np.bincount(group_index[at_risk], minlength=n_groups).astype(float)
+        d = np.bincount(group_index[died], minlength=n_groups).astype(float)
         y_total = y.sum()
         d_total = d.sum()
         if y_total <= 0 or d_total <= 0:
@@ -103,7 +104,17 @@ def _logrank_statistic(
     z = (observed - expected)[:-1]
     v = covariance[:-1, :-1]
     statistic = float(z @ np.linalg.pinv(v) @ z)
-    df = n_groups - 1
+    # Degrees of freedom = the covariance matrix's actual rank, NOT n_groups - 1 (review fix):
+    # a group never at risk at any event time (e.g. all censored before the first event)
+    # contributes zero variance, the rank drops, and testing the lower-rank statistic against
+    # chi2_{K-1} inflates the p-value (overly conservative). pinv already handles the quadratic;
+    # the reference distribution must match its rank.
+    df = int(np.linalg.matrix_rank(v))
+    if df == 0:
+        raise TenureValidationError(
+            "log-rank is undefined: no two groups are ever at risk together at an event time "
+            "(zero-rank covariance). Check group sizes and censoring."
+        )
     p_value = float(chi2.sf(statistic, df))
     return observed, expected, statistic, df, p_value
 
@@ -125,7 +136,8 @@ def logrank_test(data: Any, *, by: str | list[str] | None) -> LogRankReport:
         statistic, degrees of freedom, and the p-value.
 
     Raises:
-        TenureValidationError: If ``by`` resolves to fewer than two groups.
+        TenureValidationError: If ``by`` resolves to fewer than two groups, or no two groups are
+            ever at risk together at an event time (zero-rank covariance).
     """
     ensure_estimable(data)
     table = data.derive() if hasattr(data, "derive") else data

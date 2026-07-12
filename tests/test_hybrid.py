@@ -158,6 +158,25 @@ def test_provenance_recorded(fitted):
     assert c.scale > 0.0
 
 
+def test_time_unit_mismatch_raises(fitted):
+    # A daily empirical curve spliced with a monthly model tail would silently misalign every
+    # tenure -- the units must match (review fix).
+    km, _, _ = fitted
+    df = _df()
+    monthly = StudyDesign.from_event_dates(
+        df,
+        id_col="cid",
+        origin_col="start",
+        churn_date_col="churn",
+        active_as_of="2026-05-31",
+        group_cols=["tier"],
+        time_unit="month",
+    )
+    para_month = ParametricSurvival("weibull").fit(monthly, by="tier")
+    with pytest.raises(TenureValidationError, match="time_unit"):
+        hybrid_survival(km, para_month)
+
+
 def test_group_mismatch_raises(fitted):
     km, _, _ = fitted
     design = _design()

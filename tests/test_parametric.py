@@ -177,6 +177,17 @@ def test_overall_single_curve():
     assert model.survival_.groups == ["overall"]
 
 
+def test_nan_query_propagates_nan():
+    # NaN > 0 is False, so without explicit handling a NaN tenure would silently coerce to
+    # S = 1.0 (perfect survival) -- it must propagate instead (review fix).
+    design = _design()
+    model = ParametricSurvival("weibull").fit(design, by="tier")
+    curve = model.survival_.curve("premium")
+    s, lo, hi = curve.at(np.array([np.nan, 100.0]))
+    assert np.isnan(s[0]) and np.isnan(lo[0]) and np.isnan(hi[0])
+    assert 0.0 < s[1] < 1.0  # ordinary queries unaffected
+
+
 def test_unknown_distribution_raises():
     with pytest.raises(TenureValidationError, match="Unknown distribution"):
         ParametricSurvival("gompertz")

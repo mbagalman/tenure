@@ -11,6 +11,18 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ### Fixed
 
+- `logrank_test` degrees of freedom are now the covariance matrix's actual rank, not a hardcoded
+  ``n_groups - 1`` (review): a group never at risk at any event time (all censored before the
+  first event) contributes zero variance, and testing the lower-rank statistic against the larger
+  df inflated the p-value (overly conservative). A zero-rank covariance (no two groups ever at
+  risk together) now raises with guidance. Per-group risk-set counting also switched to a single
+  `np.bincount` pass per event time (was an O(rows x groups) mask loop).
+- `hybrid_survival` now rejects splicing curves with different ``time_unit``s (review) -- a daily
+  empirical curve with a monthly model tail previously spliced silently and misaligned every
+  tenure.
+- `ParametricSurvival` queries at ``NaN`` tenures now propagate ``NaN`` (review) -- ``NaN > 0``
+  is ``False``, so they previously coerced to a silent S = 1.0.
+
 - Stratified Cox models are now scored with the **stratified C-index** (within-stratum pairs,
   pooled by pair count) in both `cross_validate` and `concordance` (review). A stratified model's
   partial hazard carries no baseline, so ranking it across strata assumed the shared baseline the

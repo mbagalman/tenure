@@ -65,6 +65,7 @@ def _survival_fn(distribution: str, params: tuple, t) -> np.ndarray:
     """
     t = np.asarray(t, dtype=float)
     positive = t > 0
+    is_nan = np.isnan(t)  # NaN > 0 is False, so without this a NaN query would coerce to S=1.0
     safe = np.where(positive, t, 1.0)  # avoid log(0) / 0**negative in the off-support branch
     if distribution == "weibull":
         scale, shape = params
@@ -80,7 +81,7 @@ def _survival_fn(distribution: str, params: tuple, t) -> np.ndarray:
         s = 1.0 / (1.0 + np.power(safe / scale, shape))
     else:  # pragma: no cover - guarded at construction
         raise TenureValidationError(f"Unknown distribution {distribution!r}.")
-    return np.where(positive, s, 1.0)
+    return np.where(is_nan, np.nan, np.where(positive, s, 1.0))  # propagate NaN (review fix)
 
 
 def _empirical_at_risk(ef) -> tuple[np.ndarray, np.ndarray]:
