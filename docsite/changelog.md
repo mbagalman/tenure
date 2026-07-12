@@ -11,6 +11,17 @@ Audit check IDs (TNR001-TNR005, VAL001-VAL003) are a stable public contract even
 
 ### Fixed
 
+- `summarize(horizons=[])` no longer returns an empty table (review): the retention-first inner
+  merge annihilated the RMST/LTV rows against an empty retention frame. The table now assembles
+  on a base frame of the groups, so an empty-horizons report carries RMST/LTV with no retention
+  columns.
+- `summarize(horizons="30")` now means a single 30-unit horizon (review) -- the scalar string
+  previously iterated to characters and silently produced 3-unit and 0-unit retention. Scalars
+  coerce the same way `retention_at` already coerced them.
+- `plot_survival` on a user-supplied `ax` anchors the caveat stamp and the hybrid splice note to
+  that axes (review) -- they were written with `fig.text` at the corners of the whole figure,
+  spraying text across unrelated subplots in a user's grid. Self-managed figures are unchanged.
+
 - `logrank_test` degrees of freedom are now the covariance matrix's actual rank, not a hardcoded
   ``n_groups - 1`` (review): a group never at risk at any event time (all censored before the
   first event) contributes zero variance, and testing the lower-rank statistic against the larger

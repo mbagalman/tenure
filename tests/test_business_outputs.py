@@ -150,3 +150,28 @@ def test_summary_report_records_audit_provenance():  # FR-BO-5
     km = tenure.KaplanMeier().fit(design)
     report = tenure.summarize(km, period_margin=12.0, ltv_horizon=365.0, audit_report=audit_report)
     assert report.metadata["audit_verdict"] == "clean (no findings)"
+
+
+def test_summary_empty_horizons_keeps_rmst_and_ltv():
+    # horizons=[] means "no retention columns", NOT "no report": the old retention-first inner
+    # merge annihilated every row against an empty retention frame (review fix).
+    km = _fit_by_plan()
+    report = tenure.summarize(km, period_margin=12.0, ltv_horizon=365.0, horizons=[])
+    assert len(report.table) == 3  # one row per plan -- rows survived
+    assert {"group", "rmst", "ltv"}.issubset(report.table.columns)
+    assert not any(c.startswith("retention@") for c in report.table.columns)
+    assert (report.table["ltv"] > 0).all()
+    assert report.metadata["horizons"] == []
+
+
+def test_summary_scalar_string_horizon_not_iterated():
+    # horizons="30" must mean [30.0]; iterating the string would silently yield 3-day and
+    # 0-day retention (review fix).
+    km = _fit_by_plan()
+    report = tenure.summarize(km, period_margin=12.0, ltv_horizon=365.0, horizons="30")
+    retention_cols = [c for c in report.table.columns if c.startswith("retention@")]
+    assert retention_cols == ["retention@30"]
+    assert report.metadata["horizons"] == [30.0]
+    # Scalar numbers behave the same way.
+    report2 = tenure.summarize(km, period_margin=12.0, ltv_horizon=365.0, horizons=30)
+    assert [c for c in report2.table.columns if c.startswith("retention@")] == ["retention@30"]

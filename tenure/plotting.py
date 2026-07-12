@@ -48,6 +48,10 @@ def plot_survival(
     survival, auto_audit = _resolve(estimator)
     audit_report = audit_report if audit_report is not None else auto_audit
     groups = survival.groups
+    # Notes/caveats go to the figure corners only when WE created the figure; on a user-supplied
+    # ax (possibly one cell of their grid) they anchor to that axes, not the whole figure
+    # (review fix: fig.text on a user 2x2 grid sprayed text across unrelated subplots).
+    own_figure = ax is None
 
     if at_risk:
         if ax is not None:
@@ -82,15 +86,20 @@ def plot_survival(
                 curve.boundary, color=line.get_color(), linestyle=":", linewidth=1, alpha=0.6
             )
     if any_hybrid:
-        fig.text(
-            0.99,
-            0.01,
-            "Dotted line: data ends, model tail begins.",
-            fontsize=7,
-            color="dimgray",
-            ha="right",
-            va="bottom",
-        )
+        note = "Dotted line: data ends, model tail begins."
+        if own_figure:
+            fig.text(0.99, 0.01, note, fontsize=7, color="dimgray", ha="right", va="bottom")
+        else:
+            main_ax.text(
+                0.99,
+                0.02,
+                note,
+                transform=main_ax.transAxes,
+                fontsize=7,
+                color="dimgray",
+                ha="right",
+                va="bottom",
+            )
 
     main_ax.set_ylim(0.0, 1.02)
     main_ax.set_ylabel("Survival probability")
@@ -103,15 +112,20 @@ def plot_survival(
 
     if audit_report is not None and audit_report.warnings:
         names = ", ".join(sorted({r.check_id for r in audit_report.warnings}))
-        fig.text(
-            0.01,
-            0.01,
-            f"Caveat: bypassed audit warning(s): {names}. See the study-design audit.",
-            fontsize=7,
-            color="firebrick",
-            ha="left",
-            va="bottom",
-        )
+        caveat = f"Caveat: bypassed audit warning(s): {names}. See the study-design audit."
+        if own_figure:
+            fig.text(0.01, 0.01, caveat, fontsize=7, color="firebrick", ha="left", va="bottom")
+        else:
+            main_ax.text(
+                0.01,
+                0.02,
+                caveat,
+                transform=main_ax.transAxes,
+                fontsize=7,
+                color="firebrick",
+                ha="left",
+                va="bottom",
+            )
 
     return main_ax
 

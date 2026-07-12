@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from tenure.audit.checks.tnr005_horizon_support import evaluate_horizon_support
@@ -81,11 +82,17 @@ def summarize(
     min_at_risk: int = DEFAULT_MIN_AT_RISK,
     audit_report=None,
 ) -> SummaryReport:
-    """Assemble retention-at-horizons, RMST, and LTV into one self-documenting report."""
-    survival = as_survival(estimator)
-    horizons = [float(h) for h in horizons]
+    """Assemble retention-at-horizons, RMST, and LTV into one self-documenting report.
 
-    retention = retention_at(survival, horizons, min_at_risk=min_at_risk)
+    ``horizons`` accepts a sequence or a scalar; ``horizons=[]`` yields a report with RMST/LTV
+    only (no retention columns). ``horizons=()`` etc. likewise.
+    """
+    survival = as_survival(estimator)
+    # np.asarray first: a scalar string like "30" must become [30.0], never iterate to
+    # characters ([3.0, 0.0]) -- the same coercion retention_at uses (review fix).
+    horizons = [float(h) for h in np.atleast_1d(np.asarray(horizons, dtype=float))]
+
+    retention = retention_at(survival, horizons, min_at_risk=min_at_risk) if horizons else None
     rmst_frame = rmst(survival, horizon=ltv_horizon, min_at_risk=min_at_risk)
     ltv_frame = survival_weighted_ltv(
         survival,
@@ -99,11 +106,16 @@ def summarize(
         survival, sorted(set(horizons) | {float(ltv_horizon)}), min_at_risk=min_at_risk
     )
 
-    retention_wide = retention.pivot(index="group", columns="horizon", values="retention")
-    retention_wide.columns = [f"retention@{h:g}" for h in retention_wide.columns]
+    # Assemble on a base frame of the groups so an empty retention block (horizons=[]) cannot
+    # inner-join the RMST/LTV rows away (review fix: the old retention-first merge chain
+    # annihilated every row when retention was empty).
+    table = pd.DataFrame({"group": survival.groups})
+    if retention is not None:
+        retention_wide = retention.pivot(index="group", columns="horizon", values="retention")
+        retention_wide.columns = [f"retention@{h:g}" for h in retention_wide.columns]
+        table = table.merge(retention_wide.reset_index(), on="group")
     table = (
-        retention_wide.reset_index()
-        .merge(
+        table.merge(
             rmst_frame[["group", "rmst", "effective_horizon"]].rename(
                 columns={"effective_horizon": "rmst_horizon"}
             ),
